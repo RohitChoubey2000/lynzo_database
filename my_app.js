@@ -9,6 +9,14 @@ const app = express();
 app.use(express.json());
 
 
+app.get("/get/users", async (request, response)=>{
+
+  const[result]= await db.query("SELECT *From users");
+  response.status(200).json(result);
+
+})
+
+
 
 app.get("/users", (request, response) => {
   const token = request.headers.authorization;
