@@ -68,83 +68,76 @@ app.post("/users/signup", async (request, response) => {
 // Post method for Login
 // Post method for Login (Corrected)
 // Post method for Login (Final Corrected Version with Case Sensitivity Fix)
+// Post method for Login (Rewritten to use ASYNC/AWAIT)
 app.post("/users/login", async (request, response) => {
     const email = request.body.email;
     const password = request.body.password;
 
-    // Input validation: ensure both fields are present
+    // 1. Input validation
     if (!email || !password) {
         return response.status(400).json({ message: "Email and password are required." });
     }
 
-    db.query(
-        "SELECT * FROM users WHERE Email = ?", // Query by Email column
-        [email],
-        async (error, result) => {
-            if (error) {
-                // Handle database server error
-                console.error("Database Query Error:", error);
-                return response.status(500).json({ message: "Server internal error." });
-            }
+    try {
+        // 2. Database Query (Using await and promise-based query)
+        const [result] = await db.query("SELECT * FROM users WHERE Email = ?", [email]);
 
-            try {
-                // CRITICAL CHECK 1: Ensure user exists
-                if (!result || result.length === 0) {
-                    return response.status(401).json({ message: "Login Failed: Invalid Email or Password." });
-                }
-
-                const user = result[0];
-                
-                // ⭐ CASE SENSITIVITY FIX APPLIED HERE:
-                // Accessing the properties with the correct initial uppercase: Password, FirstName, etc.
-                const dbPassword = user.Password; 
-                const firstName = user.FirstName;
-                const lastName = user.LastName;
-                const phoneNumber = user.PhoneNumber;
-                const userEmail = user.Email; // Use the email from the DB result
-
-                // CRITICAL CHECK 2: Ensure password hash is not NULL/undefined
-                if (!dbPassword) {
-                    console.error("CRASH DEBUG: Password hash is missing for user:", userEmail);
-                    return response.status(500).json({ message: "User data is corrupt. Cannot login." });
-                }
-
-                // Check password
-                const isPassword = await bcrypt.compare(password, dbPassword);
-
-                if (isPassword) {
-                    const secretKey = "abcd"; // NOTE: Use an environment variable for a real secret key
-                    const token = jwt.sign(
-                        { 
-                            id: user.id, 
-                            firstName: firstName, 
-                            lastName: lastName, 
-                            phoneNumber: phoneNumber, 
-                            email: userEmail 
-                        }, 
-                        secretKey, 
-                        { expiresIn: "1h" }
-                    );
-                    
-                    response.status(200).json({ 
-                        message: "Login Successfully", 
-                        token: token,
-                        user: {
-                            firstName: firstName,
-                            email: userEmail
-                        }
-                    });
-                } else {
-                    // Password mismatch
-                    response.status(401).json({ message: "Login Failed: Invalid Email or Password." });
-                }
-            } catch (runtimeError) {
-                // Catch any unexpected crash (e.g., if a column was still missing)
-                console.error("CRASH POINT DEBUG:", runtimeError);
-                return response.status(500).json({ message: "An unexpected error occurred during login." });
-            }
+        // CRITICAL CHECK 1: Ensure user exists
+        if (result.length === 0) {
+            // Use the same message for security (don't reveal if it's the email or password that's wrong)
+            return response.status(401).json({ message: "Login Failed: Invalid Email or Password." });
         }
-    );
+
+        const user = result[0];
+        
+        // 3. Retrieve user data (Ensuring correct casing: Password, FirstName, etc.)
+        const dbPassword = user.Password; 
+        const firstName = user.FirstName;
+        const lastName = user.LastName;
+        const phoneNumber = user.PhoneNumber;
+        const userEmail = user.Email; 
+
+        // CRITICAL CHECK 2: Ensure password hash is not NULL/undefined
+        if (!dbPassword) {
+            console.error("User data corrupt: Password hash missing for user:", userEmail);
+            return response.status(500).json({ message: "User data is corrupt. Cannot login." });
+        }
+
+        // 4. Check password
+        const isPassword = await bcrypt.compare(password, dbPassword);
+
+        if (isPassword) {
+            // 5. Successful Login: Generate Token
+            const secretKey = "abcd";
+            const token = jwt.sign(
+                { 
+                    id: user.id, 
+                    firstName: firstName, 
+                    lastName: lastName, 
+                    phoneNumber: phoneNumber, 
+                    email: userEmail 
+                }, 
+                secretKey, 
+                { expiresIn: "1h" }
+            );
+            
+            return response.status(200).json({ 
+                message: "Login Successfully", 
+                token: token,
+                user: {
+                    firstName: firstName,
+                    email: userEmail
+                }
+            });
+        } else {
+            // Password mismatch
+            return response.status(401).json({ message: "Login Failed: Invalid Email or Password." });
+        }
+    } catch (error) {
+        // Catch any database or runtime error (e.g., connection lost)
+        console.error("LOGIN ROUTE CRASH/ERROR:", error);
+        return response.status(500).json({ message: "Server internal error. Could not process login." });
+    }
 });
 
 
