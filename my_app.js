@@ -31,7 +31,7 @@ app.post("/users/signup", async (request, response) => {
   const password = request.body.password;
   const passwordHash = await bcrypt.hash(password, 10);
   db.query(
-    "INSERT INTO users (email, firstName, lastName, phoneNumber, password) VALUES (?,?,?,?,?)",
+    "INSERT INTO users (Email, FirstName, LastName, PhoneNumber, Password) VALUES (?,?,?,?,?)",
     [email, firstName, lastName, phoneNumber, passwordHash],
     (error, result) => {
       if (error)
@@ -131,6 +131,9 @@ app.post("/users/login", async (request, response) => {
         }
     );
 });
+
+
+
 
 app.listen(3500, () => {
   console.log("Server is running on port 3500");
