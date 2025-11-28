@@ -38,24 +38,31 @@ app.post("/users/signup", async (request, response) => {
   const phoneNumber = request.body.phoneNumber;
   const password = request.body.password;
   const passwordHash = await bcrypt.hash(password, 10);
-  db.query(
+ 
+   try{ 
+  const [result]= await db.query(
     "INSERT INTO users (Email, FirstName, LastName, PhoneNumber, Password) VALUES (?,?,?,?,?)",
-    [email, firstName, lastName, phoneNumber, passwordHash],
-    (error, result) => {
-      if (error)
-        return response
-          .status(500)
-          .json({ message: "Server internal error: " + error });
-
-      response.status(201).json({
+    [email, firstName, lastName, phoneNumber, passwordHash]
+  );
+    response.status(201).json({
         id: result.insertId,
         email,
         firstName,
         lastName,
         phoneNumber,
       });
+
     }
-  );
+
+    catch(error){
+      console.log("Database insert erro" + error);
+
+      if (error.errno === 1062) {
+            return response.status(409).json({ message: "This email address is already registered." });
+        }
+
+        return response.status(500).json({ message: "Server internal error. Could not register user." });
+    }
 });
 
 // Post method for Login
