@@ -1,13 +1,22 @@
 const mysql = require("mysql2/promise");
+const dotenv = require('dotenv');
+
+// Load environment variables
+dotenv.config();
+
 const poolConfig = {
-    host: "217.21.87.103",
-    user: "u205680228_rohitchoubey",
-    password: "Rohit@choubey5",
-    database: "u205680228_lynzo",
-    port: process.env.DB_PORT,
-    waitForConnections: true, // If connections are maxed out, queue new requests
-    connectionLimit: 10,     // Max number of simultaneous connections (adjust as needed)
-    queueLimit: 0,           // No limit on the queue for waiting requests
+    // USE process.env FOR SENSITIVE DATA
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
+    
+    // PORT is optional if standard (3306)
+    port: process.env.DB_PORT || 3306, 
+    
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
     connectTimeout: 20000, 
     acquireTimeout: 20000 
 };
@@ -17,7 +26,7 @@ const db = mysql.createPool(poolConfig);
 db.getConnection()
     .then(connection => {
         console.log("Database connected and pool ready.");
-        connection.release(); // Release the test connection back to the pool
+        connection.release(); 
     })
     .catch(error => {
         console.error("Database connection error (Please check config/credentials):", error.message);

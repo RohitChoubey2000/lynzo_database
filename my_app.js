@@ -1,7 +1,10 @@
+require('dotenv').config(); // <-- ADD THIS if you are accessing any env vars here
 const express = require("express");
 const db = require("./db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const sendEmail = require("./mailer");
 const { request } = require("http");
 const { error } = require("console");
 const app = express();
@@ -9,6 +12,11 @@ const app = express();
 app.use(express.json());
 
 
+
+
+
+
+// For geting Users Details
 app.get("/get/users", async (request, response)=>{
 
   const[result]= await db.query("SELECT *From users");
@@ -16,8 +24,7 @@ app.get("/get/users", async (request, response)=>{
 
 })
 
-
-
+/////////////////////////////////////
 app.get("/users", (request, response) => {
   const token = request.headers.authorization;
   const secretKey = "abcd";
@@ -65,9 +72,6 @@ app.post("/users/signup", async (request, response) => {
     }
 });
 
-// Post method for Login
-// Post method for Login (Corrected)
-// Post method for Login (Final Corrected Version with Case Sensitivity Fix)
 // Post method for Login (Rewritten to use ASYNC/AWAIT)
 app.post("/users/login", async (request, response) => {
     const email = request.body.email;
@@ -141,6 +145,109 @@ app.post("/users/login", async (request, response) => {
 });
 
 
+// --- 1. Request Password Reset (POST /users/forgot-password) ---
+app.post("/users/forgot-password", async (request, response) => {
+    const email = request.body.email;
+
+    if (!email) {
+        return response.status(400).json({ message: "Email is required." });
+    }
+
+    try {
+        // 1. Find user by email (case-insensitive search might be better: WHERE Email COLLATE utf8mb4_general_ci = ?)
+        const [users] = await db.query("SELECT id FROM users WHERE Email = ?", [email]);
+
+        // Security check: Don't confirm if the email exists
+        if (users.length === 0) {
+            console.log(`Password reset requested for non-existent email: ${email}`);
+            return response.status(200).json({ message: "If a user with that email exists, a password reset link has been sent." });
+        }
+
+        const userId = users[0].id;
+
+        // 2. Generate token and expiration (1 hour)
+        const resetToken = crypto.randomBytes(20).toString('hex');
+        const expirationTime = new Date(Date.now() + 3600000); // 1 hour = 3,600,000 milliseconds
+
+        // 3. Store the token and expiry in the database
+        // **IMPORTANT: Your users table needs 'resetPasswordToken' and 'resetPasswordExpires' columns**
+        await db.query(
+            "UPDATE users SET resetPasswordToken = ?, resetPasswordExpires = ? WHERE id = ?",
+            [resetToken, expirationTime, userId]
+        );
+
+        // 4. Send the email with the reset link
+        const resetURL = `https://your-frontend-domain.com/reset-password?token=${resetToken}`;
+        const subject = "Password Reset Request";
+        const htmlContent = `
+            <p>Hello,</p>
+            <p>You are receiving this because you (or someone else) have requested the reset of the password for your account.</p>
+            <p>Please click on the following link, or paste this into your browser to complete the process:</p>
+            <p><a href="${resetURL}">RESET PASSWORD LINK</a></p>
+            <p>If you did not request this, please ignore this email and your password will remain unchanged.</p>
+            <p>This link is valid for 1 hour.</p>
+        `;
+
+        const emailSent = await sendEmail(email, subject, htmlContent);
+
+        if (!emailSent) {
+            // Log the error but still return 200 to the user for security/rate limiting reasons
+            return response.status(200).json({ message: "Password reset link sent (but an email service error occurred)." });
+        }
+
+        // 5. Success response
+        return response.status(200).json({ 
+            message: "If a user with that email exists, a password reset link has been sent." 
+        });
+
+    } catch (error) {
+        console.error("Forgot password route error:", error);
+        return response.status(500).json({ message: "Server internal error. Could not process reset request." });
+    }
+});
+
+// --- 2. Update Password (POST /users/reset-password) ---
+app.post("/users/reset-password", async (request, response) => {
+    const { token, newPassword } = request.body;
+
+    if (!token || !newPassword) {
+        return response.status(400).json({ message: "Token and new password are required." });
+    }
+
+    try {
+        // 1. Find user by token AND check if the token is not expired (current time > expiry time)
+        const [users] = await db.query(
+            "SELECT id FROM users WHERE resetPasswordToken = ? AND resetPasswordExpires > NOW()", 
+            [token]
+        );
+
+        if (users.length === 0) {
+            // Token is invalid, missing, or expired.
+            return response.status(400).json({ message: "Password reset token is invalid or has expired." });
+        }
+
+        const userId = users[0].id;
+
+        // 2. Hash the new password
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+
+        // 3. Update the password and clear the token/expiry fields
+        await db.query(
+            "UPDATE users SET Password = ?, resetPasswordToken = NULL, resetPasswordExpires = NULL WHERE id = ?",
+            [passwordHash, userId]
+        );
+
+        // 4. Optionally: Send a success confirmation email here
+        // const [user] = await db.query("SELECT Email FROM users WHERE id = ?", [userId]);
+        // await sendEmail(user[0].Email, "Password Successfully Changed", "<p>Your password has been successfully updated.</p>");
+
+        return response.status(200).json({ message: "Your password has been successfully updated." });
+
+    } catch (error) {
+        console.error("Reset password route error:", error);
+        return response.status(500).json({ message: "Server internal error. Could not reset password." });
+    }
+});
 
 
 app.listen(3500, () => {
