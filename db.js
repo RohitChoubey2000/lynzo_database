@@ -1,7 +1,8 @@
+// db.js file code
 const mysql = require("mysql2/promise");
 const dotenv = require('dotenv');
 
-// Load environment variables
+// Load environment variables (Good practice, even if loaded elsewhere)
 dotenv.config();
 
 const poolConfig = {
@@ -12,7 +13,7 @@ const poolConfig = {
     database: process.env.DB_DATABASE,
     
     // PORT is optional if standard (3306)
-    //port: process.env.DB_PORT || 3306, 
+    // You can set port: process.env.DB_PORT || 3306, but omitting it is fine too.
     
     waitForConnections: true,
     connectionLimit: 10,
@@ -25,11 +26,14 @@ const db = mysql.createPool(poolConfig);
 
 db.getConnection()
     .then(connection => {
-        console.log("Database connected and pool ready.");
+        console.log("Database connected and pool ready. ✅");
         connection.release(); 
     })
     .catch(error => {
-        console.error("Database connection error (Please check config/credentials):", error.message);
+        console.error("Database connection error: Could not connect to MySQL. ❌", error.message);
+        // CRITICAL FIX: Exit the application if the DB connection fails.
+        // This stops Express from starting and taking bad requests.
+        process.exit(1); 
     });
 
 module.exports = db;
