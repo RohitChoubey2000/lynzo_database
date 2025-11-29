@@ -67,7 +67,7 @@ app.post("/users/signup", async (request, response) => {
 });
 
 // Post method for Login (Rewritten to use ASYNC/AWAIT)
-app.post("/users/login ", async (request, response) => {
+app.post("/users/login", async (request, response) => {
   const email = request.body.email;
   const password = request.body.password;
 
