@@ -12,7 +12,7 @@ const poolConfig = {
     database: process.env.DB_DATABASE,
     
     // PORT is optional if standard (3306)
-    port: process.env.DB_PORT || 3306, 
+    //port: process.env.DB_PORT || 3306, 
     
     waitForConnections: true,
     connectionLimit: 10,
