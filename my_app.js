@@ -7,9 +7,14 @@ const crypto = require("crypto");
 const sendEmail = require("./mailer");
 const { request } = require("http");
 const { error } = require("console");
+// ... (Your existing requires)
+const multer = require("multer");
+const path = require("path");
 const app = express();
-
 app.use(express.json());
+
+
+///=----------
 
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
@@ -37,20 +42,25 @@ const authenticateToken = (request, response, next) => {
     next(); // Proceed to the route handler
   });
 };
+
 // ------------------------------------------
+
+
+
 
 // For geting Users Details
 app.get("/get/users", async (request, response) => {
   const [result] = await db.query("SELECT *From users");
   response.status(200).json(result);
 });
-
-/////////////////////////////////////
 // Protected route to get user details based on token
 app.get("/users", authenticateToken, (request, response) => {
   // The user information is already available in request.user from the middleware
   response.status(200).json(request.user);
 });
+
+
+
 
 // Post Method to add new user
 app.post("/users/signup", async (request, response) => {
@@ -88,7 +98,9 @@ app.post("/users/signup", async (request, response) => {
   }
 });
 
-// Post method for Login (Rewritten to use ASYNC/AWAIT)
+
+
+// Post method for Login ()
 app.post("/users/login", async (request, response) => {
   const email = request.body.email;
   const password = request.body.password;
@@ -176,6 +188,7 @@ app.post("/users/login", async (request, response) => {
   }
 });
 
+
 // --- 1. Request Password Reset (POST /users/forgot-password) ---
 app.post("/users/forgot-password", async (request, response) => {
   const email = request.body.email;
@@ -232,7 +245,6 @@ app.post("/users/forgot-password", async (request, response) => {
           "Password reset link sent (but an email service error occurred).",
       });
     }
-
     // 5. Success response
     return response.status(200).json({
       message:
@@ -245,6 +257,7 @@ app.post("/users/forgot-password", async (request, response) => {
     });
   }
 });
+
 
 // --- 2. Update Password (POST /users/reset-password) ---
 app.post("/users/reset-password", async (request, response) => {
@@ -356,6 +369,116 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
       .json({ message: "Server internal error. Could not update user." });
   }
 });
+
+///////
+
+// --- Multer Storage Configuration For User Profile---
+const storage = multer.diskStorage({
+  // Ensure an 'uploads' directory exists in your project root
+  destination: (request, file, callback) => {
+    callback(null, "uploads/");
+  },
+  // We use a unique ID for the filename
+  filename: (request, file, callback) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const fileExtension = path.extname(file.originalname);
+    const newFileName = `profile-${uniqueSuffix}${fileExtension}`;
+    // Store the filename on the request object so we can access it later in the route
+    request.uploadedFileName = newFileName;
+    callback(null, newFileName);
+  },
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (request, file, callback) => {
+    const filetypes = /jpeg|jpg|png/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(
+      path.extname(file.originalname).toLowerCase()
+    );
+
+    if (mimetype && extname) {
+      return callback(null, true);
+    }
+    callback(
+      new Error("Error: Profile picture must be a JPG or PNG and under 5MB.")
+    );
+  },
+}).single("UserProfile"); // <-- Must match the form field name
+
+// --- UNPROTECTED Profile Picture Upload Route ---
+app.post("/users/upload/profile-picture", (request, response) => {
+  // 1. Run Multer to handle the file upload
+  upload(request, response, async (err) => {
+    // Handle File Upload Errors
+    if (err) {
+      console.error("Upload error:", err.message);
+      let message = "Could not process file upload.";
+      if (err instanceof multer.MulterError) {
+        message = `Upload error: ${err.message}`;
+      } else if (err.message.includes("filetypes")) {
+        message = err.message;
+      }
+      return response.status(400).json({ message });
+    }
+
+    // 2. Check for File and Required User ID/Email in the body
+    if (!request.file) {
+      return response
+        .status(400)
+        .json({ message: "No profile picture file selected." });
+    }
+
+    // We assume the client sends the email in the form data body
+    const email = request.body.email;
+    const profilePicturePath = request.uploadedFileName;
+
+    if (!email) {
+      // If validation fails, clean up the uploaded file
+      // If you are using 'fs', add fs.unlinkSync(request.file.path); here
+      return response
+        .status(400)
+        .json({ message: "Email is required to identify the user." });
+    }
+
+    try {
+      // 3. Update the user's record with the new file path
+      const [result] = await db.query(
+        "UPDATE users SET UserProfile = ? WHERE Email = ?",
+        [profilePicturePath, email]
+      );
+
+      if (result.affectedRows === 0) {
+        // If the email didn't match a user, clean up the uploaded file
+        // If you are using 'fs', add fs.unlinkSync(request.file.path); here
+        return response
+          .status(404)
+          .json({ message: "User not found with the provided email." });
+      }
+
+      // 4. Success response
+      response.status(200).json({
+        message: "Profile picture uploaded and saved successfully.",
+        userProfileUrl: `/uploads/${profilePicturePath}`,
+      });
+    } catch (dbError) {
+      console.error("Database update error on file upload:", dbError);
+      // If the database operation fails, clean up the uploaded file
+      // If you are using 'fs', add fs.unlinkSync(request.file.path); here
+      return response.status(500).json({
+        message: "Server internal error. Could not update user profile.",
+      });
+    }
+  });
+});
+
+// --- CRITICAL: Serve Static Files ---
+// This line makes the 'uploads' directory accessible via the '/uploads' URL prefix
+app.use("/uploads", express.static("uploads"));
 
 app.listen(3500, () => {
   console.log("Server is running on port 3500");
