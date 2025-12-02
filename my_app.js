@@ -14,7 +14,7 @@ const app = express();
 app.use(express.json());
 
 
-///=----------
+
 
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
@@ -104,14 +104,12 @@ app.post("/users/signup", async (request, response) => {
 app.post("/users/login", async (request, response) => {
   const email = request.body.email;
   const password = request.body.password;
-
   // 1. Input validation
   if (!email || !password) {
     return response
       .status(400)
       .json({ message: "Email and password are required." });
   }
-
   try {
     // 2. Database Query (Using await and promise-based query)
     const [result] = await db.query("SELECT * FROM users WHERE Email = ?", [
@@ -125,16 +123,13 @@ app.post("/users/login", async (request, response) => {
         .status(401)
         .json({ message: "Login Failed: Invalid Email or Password." });
     }
-
     const user = result[0];
-
     // 3. Retrieve user data (Ensuring correct casing: Password, FirstName, etc.)
     const dbPassword = user.Password;
     const firstName = user.FirstName;
     const lastName = user.LastName;
     const phoneNumber = user.PhoneNumber;
     const userEmail = user.Email;
-
     // CRITICAL CHECK 2: Ensure password hash is not NULL/undefined
     if (!dbPassword) {
       console.error(
@@ -145,10 +140,8 @@ app.post("/users/login", async (request, response) => {
         .status(500)
         .json({ message: "User data is corrupt. Cannot login." });
     }
-
     // 4. Check password
     const isPassword = await bcrypt.compare(password, dbPassword);
-
     if (isPassword) {
       // 5. Successful Login: Generate Token
       const secretKey = "abcd";
@@ -163,7 +156,6 @@ app.post("/users/login", async (request, response) => {
         secretKey,
         { expiresIn: "1h" }
       );
-
       return response.status(200).json({
         message: "Login Successfully",
         token: token,
@@ -370,115 +362,76 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
   }
 });
 
-///////
 
-// --- Multer Storage Configuration For User Profile---
+
+// --- MULTER STORAGE CONFIGURATION ---
 const storage = multer.diskStorage({
-  // Ensure an 'uploads' directory exists in your project root
-  destination: (request, file, callback) => {
-    callback(null, "uploads/");
-  },
-  // We use a unique ID for the filename
-  filename: (request, file, callback) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const fileExtension = path.extname(file.originalname);
-    const newFileName = `profile-${uniqueSuffix}${fileExtension}`;
-    // Store the filename on the request object so we can access it later in the route
-    request.uploadedFileName = newFileName;
-    callback(null, newFileName);
+  // 'profileImages' folder must exist in your project root
+  destination: "./profileImages",
+  filename: (request, file, cb) => {
+    // Generate a unique filename: current timestamp + original file extension
+    cb(null, Date.now() + path.extname(file.originalname));
   },
 });
+const upload = multer({ storage: storage });
 
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (request, file, callback) => {
-    const filetypes = /jpeg|jpg|png/;
-    const mimetype = filetypes.test(file.mimetype);
-    const extname = filetypes.test(
-      path.extname(file.originalname).toLowerCase()
-    );
+// --- STATIC FILE SERVER (Accessing images via URL) ---
+app.use("/profileImages", express.static("profileImages"));
 
-    if (mimetype && extname) {
-      return callback(null, true);
-    }
-    callback(
-      new Error("Error: Profile picture must be a JPG or PNG and under 5MB.")
-    );
-  },
-}).single("UserProfile"); // <-- Must match the form field name
-
-// --- UNPROTECTED Profile Picture Upload Route ---
-app.post("/users/upload/profile-picture", (request, response) => {
-  // 1. Run Multer to handle the file upload
-  upload(request, response, async (err) => {
-    // Handle File Upload Errors
-    if (err) {
-      console.error("Upload error:", err.message);
-      let message = "Could not process file upload.";
-      if (err instanceof multer.MulterError) {
-        message = `Upload error: ${err.message}`;
-      } else if (err.message.includes("filetypes")) {
-        message = err.message;
-      }
-      return response.status(400).json({ message });
-    }
-
-    // 2. Check for File and Required User ID/Email in the body
+// --- UPLOAD PROFILE PICTURE ROUTE (Protected) ---
+// Uses authenticateToken to ensure a valid user is making the request
+app.post(
+  "/api/user/profile",
+  authenticateToken, // CRITICAL: Protects the route
+  upload.single("profilePic"), // Handles the file upload
+  async (request, response) => {
+    // 1. Check for file upload error
     if (!request.file) {
-      return response
-        .status(400)
-        .json({ message: "No profile picture file selected." });
+      return response.status(400).json({
+        message: "File upload failed. Please ensure 'profilePic' is selected.",
+      });
     }
 
-    // We assume the client sends the email in the form data body
-    const email = request.body.email;
-    const profilePicturePath = request.uploadedFileName;
-
-    if (!email) {
-      // If validation fails, clean up the uploaded file
-      // If you are using 'fs', add fs.unlinkSync(request.file.path); here
-      return response
-        .status(400)
-        .json({ message: "Email is required to identify the user." });
-    }
+    // 2. Get data from request
+    // The user's ID is retrieved securely from the decoded JWT token
+    const userId = request.user.id;
+    // The path to the file is relative to the server's root
+    const filePath = request.file.path; // e.g., "profileImages/1761380677453.png"
 
     try {
-      // 3. Update the user's record with the new file path
+      // 3. Update the database (UserProfile column)
       const [result] = await db.query(
-        "UPDATE users SET UserProfile = ? WHERE Email = ?",
-        [profilePicturePath, email]
+        "UPDATE users SET UserProfile = ? WHERE id = ?",
+        [filePath, userId]
       );
 
+      // Check if the update was successful
       if (result.affectedRows === 0) {
-        // If the email didn't match a user, clean up the uploaded file
-        // If you are using 'fs', add fs.unlinkSync(request.file.path); here
-        return response
-          .status(404)
-          .json({ message: "User not found with the provided email." });
+        // This is unlikely if authenticateToken worked, but good for robustness
+        return response.status(404).json({ message: "User not found." });
       }
 
-      // 4. Success response
-      response.status(200).json({
-        message: "Profile picture uploaded and saved successfully.",
-        userProfileUrl: `/uploads/${profilePicturePath}`,
+      // 4. Success Response
+      return response.status(200).json({
+        message: "Profile picture uploaded and database updated successfully.",
+        filePath: filePath, // Send back the path for the client to use
       });
-    } catch (dbError) {
-      console.error("Database update error on file upload:", dbError);
-      // If the database operation fails, clean up the uploaded file
-      // If you are using 'fs', add fs.unlinkSync(request.file.path); here
+    } catch (error) {
+      console.error("Database update error on profile upload:", error);
       return response.status(500).json({
-        message: "Server internal error. Could not update user profile.",
+        message: "Server internal error. Could not save profile picture path.",
       });
     }
-  });
-});
+  }
+);
 
-// --- CRITICAL: Serve Static Files ---
-// This line makes the 'uploads' directory accessible via the '/uploads' URL prefix
-app.use("/uploads", express.static("uploads"));
+
+
+
+
+
+
+
 
 app.listen(3500, () => {
   console.log("Server is running on port 3500");
