@@ -53,10 +53,6 @@ app.get("/get/users", async (request, response) => {
   response.status(200).json(result);
 });
 // Protected route to get user details based on token
-app.get("/users", authenticateToken, (request, response) => {
-  // The user information is already available in request.user from the middleware
-  response.status(200).json(request.user);
-});
 
 
 
