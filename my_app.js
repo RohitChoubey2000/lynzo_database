@@ -7,7 +7,6 @@ const crypto = require("crypto");
 const sendEmail = require("./mailer");
 const { request } = require("http");
 const { error } = require("console");
-// ... (Your existing requires)
 const multer = require("multer");
 const path = require("path");
 const app = express();
@@ -100,7 +99,8 @@ app.post("/users/signup", async (request, response) => {
 
 
 
-// Post method for Login ()
+// -----[Post method for Login ()]-----
+
 app.post("/users/login", async (request, response) => {
   const email = request.body.email;
   const password = request.body.password;
@@ -363,71 +363,95 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
 });
 
 
+//--------[-]--------\\
 
 // --- MULTER STORAGE CONFIGURATION ---
 const storage = multer.diskStorage({
-  // 'profileImages' folder must exist in your project root
-  destination: "./profileImages",
+  // The directory where uploaded files will be stored.
+  // IMPORTANT: This 'profileImages' folder MUST be created in your project root.
+  destination: (request, file, cb) => {
+    cb(null, "./profileImages");
+  },
+  // Define the filename structure to avoid conflicts
   filename: (request, file, cb) => {
     // Generate a unique filename: current timestamp + original file extension
     cb(null, Date.now() + path.extname(file.originalname));
   },
 });
-const upload = multer({ storage: storage });
 
-// --- STATIC FILE SERVER (Accessing images via URL) ---
-app.use("/profileImages", express.static("profileImages"));
+// Create the Multer upload instance
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 } // Optional: Limit file size to 5MB
+});
 
-// --- UPLOAD PROFILE PICTURE ROUTE (Protected) ---
-// Uses authenticateToken to ensure a valid user is making the request
+// --- STATIC FILE SERVER ---
+// Makes the profileImages folder accessible via a public URL
+// e.g., http://localhost:3500/profileImages/1761380677453.png
+app.use("/profileImages", express.static(path.join(__dirname, 'profileImages')));
+
+// --- UPLOAD/UPDATE PROFILE PICTURE ROUTE (UNPROTECTED by JWT) ---
+// ROUTE: POST /api/user/profile-picture
+// Requires the user's email in the form-data body to identify the user.
 app.post(
-  "/api/user/profile",
-  authenticateToken, // CRITICAL: Protects the route
-  upload.single("profilePic"), // Handles the file upload
+  "/api/user/profile-picture",
+  // 1. Multer middleware still handles the file upload (key must be 'profilePic')
+  upload.single("profilePic"), 
   async (request, response) => {
-    // 1. Check for file upload error
-    if (!request.file) {
+    
+    // 2. Get the file and email from the request body
+    const email = request.body.email;
+    
+    // 3. Basic Validation Checks
+    if (!email) {
+      // Must have the email to identify the user
       return response.status(400).json({
-        message: "File upload failed. Please ensure 'profilePic' is selected.",
+        message: "Email is required in the form-data to identify the user.",
       });
     }
 
-    // 2. Get data from request
-    // The user's ID is retrieved securely from the decoded JWT token
-    const userId = request.user.id;
-    // The path to the file is relative to the server's root
-    const filePath = request.file.path; // e.g., "profileImages/1761380677453.png"
+    if (!request.file) {
+      // Must have the file to upload
+      return response.status(400).json({
+        message: "File upload failed. Please ensure the file is sent with the key 'profilePic'.",
+      });
+    }
+
+    // The path is relative to the server and will be stored in the DB
+    const filePath = `profileImages/${request.file.filename}`; // e.g., "profileImages/1761380677453.png"
 
     try {
-      // 3. Update the database (UserProfile column)
+      // 4. Update the database: Find the user by Email and set the UserProfile path
       const [result] = await db.query(
-        "UPDATE users SET UserProfile = ? WHERE id = ?",
-        [filePath, userId]
+        // Use the Email column to match the user
+        "UPDATE users SET UserProfile = ? WHERE Email = ?",
+        [filePath, email]
       );
 
-      // Check if the update was successful
       if (result.affectedRows === 0) {
-        // This is unlikely if authenticateToken worked, but good for robustness
-        return response.status(404).json({ message: "User not found." });
+        // If the update failed (email not found)
+        return response.status(404).json({ 
+            message: `User with email '${email}' not found. Profile picture not updated.` 
+        });
       }
 
-      // 4. Success Response
+      // 5. Success Response
       return response.status(200).json({
         message: "Profile picture uploaded and database updated successfully.",
-        filePath: filePath, // Send back the path for the client to use
+        userEmail: email,
+        dbPath: filePath,
+        // Provide the full public URL for immediate display
+        profilePictureUrl: `${request.protocol}://${request.get('host')}/${filePath}`
       });
+      
     } catch (error) {
-      console.error("Database update error on profile upload:", error);
+      console.error("Database or file processing error on profile upload:", error);
       return response.status(500).json({
-        message: "Server internal error. Could not save profile picture path.",
+        message: "Server internal error. Could not process profile picture update.",
       });
     }
   }
 );
-
-
-
-
 
 
 
