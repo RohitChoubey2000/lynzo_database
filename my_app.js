@@ -15,6 +15,7 @@ app.use(express.json());
 
 
 
+
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
 const authenticateToken = (request, response, next) => {
@@ -53,6 +54,10 @@ app.get("/get/users", async (request, response) => {
   response.status(200).json(result);
 });
 // Protected route to get user details based on token
+app.get("/users", authenticateToken, (request, response) => {
+  // The user information is already available in request.user from the middleware
+  response.status(200).json(request.user);
+});
 
 
 
@@ -361,70 +366,50 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
 
 //--------[-]--------\\
 
-// --- CRITICAL FIX: Use a Temporary Directory for Cloud Deployment ---
+// middleware
+
+// Multer storage setup
 const storage = multer.diskStorage({
-  // Use '/tmp' as the destination. This is the only guaranteed writable directory on Render/most PaaS.
-  // The 'profileImages' part is added to the filename path later.
-  destination: (request, file, cb) => {
-    // We will save files directly to the /tmp directory
-    cb(null, "/tmp"); 
-  },
-  // Define the filename structure
-  filename: (request, file, cb) => {
-    // Generate a unique filename: current timestamp + original file extension
+  destination: "./profileImages",
+  filename: (req, file, cb) => {
     cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
-
-// Create the Multer upload instance
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 } 
-});
-// --------------------------------------------------------------------
-
-app.post(
-  "/api/user/profile-picture",
-  upload.single("profilePic"), 
-  async (request, response) => {
-    
-    const email = request.body.email;
-    
-    if (!email || !request.file) {
-      // ... (400 error handling remains the same)
-    }
-
-    // CRITICAL CHANGE: Get the full path where Multer saved the file in /tmp
-    const tempFilePath = request.file.path; // e.g., "/tmp/1761380677453.png"
-
-    // The path you save to the database must be the public facing path, NOT the temp path.
-    // We will just save the filename for now, as permanent storage is required for the full path.
-    const fileName = request.file.filename; 
-
-    // IMPORTANT: Since files in /tmp are deleted frequently, you cannot permanently serve them.
-    // For a real app, you MUST upload this file to a service like AWS S3 or Cloudinary.
-    // For now, we will save the public URL structure, assuming you will configure S3 later.
-    const publicImageUrl = `https://your-storage-bucket.com/profileImages/${fileName}`; 
-
-    try {
-      // 4. Update the database: Save the public-facing URL/ID
-      // This is a TEMPORARY FIX until you implement S3/Cloudinary.
-      const [result] = await db.query(
-        "UPDATE users SET UserProfile = ? WHERE Email = ?",
-        [publicImageUrl, email] // Save the public URL placeholder for now
-      );
-
-      // ... (404/200 success handling remains the same)
-      return response.status(200).json({
-        message: "Profile picture processed and database updated successfully.",
-        profilePictureUrl: publicImageUrl, // Send back the placeholder URL
-      });
-
-    } catch (error) {
-      // ... (500 error handling remains the same)
-    }
   }
-);
+});
+
+const upload = multer({ storage });
+
+// Allow static image access
+app.use("/profileImages", express.static("profileImages"));
+
+// Upload profile picture API
+app.post("/api/user/profile", upload.single("profilePic"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      message: "Please upload a profile picture"
+    });
+  }
+  const filePath = req.file.filename;  // only store filename
+  const id = req.body.id;              // user ID
+
+  // Save to database — column name = UserProfile
+  const sql = "UPDATE users SET UserProfile = ? WHERE id = ?";
+
+  db.query(sql, [filePath, id], (error, result) => {
+    if (error) {
+      console.log("DB Error:", error);
+      return res.status(500).json({ 
+        message: "Internal server error", 
+        error: error 
+      });
+    }
+
+    res.status(200).json({
+      message: "Profile picture uploaded successfully",
+      imageURL: `http://127.0.0.1:3000/profileImages/${filePath}`
+    });
+  });
+});
+
 
 
 
