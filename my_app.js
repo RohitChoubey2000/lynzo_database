@@ -454,7 +454,7 @@ app.post(
       fs.unlinkSync(request.file.path); 
       return response
         .status(500)
-        .json({ message: "Server internal error. Could not update profile picture." });
+        .json({ message: "Server internal error. Could not update profile picture. " + error });
     }
   }
 );
