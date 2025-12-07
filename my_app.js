@@ -366,6 +366,7 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
 
 
 //--------[-]--------\\
+//--------[-]--------\\
 // --- Multer Storage Configuration ---
 const storage = multer.diskStorage({
   // IMPORTANT: Ensure the 'profileImages' directory exists in your project root!
@@ -458,8 +459,6 @@ app.post(
     }
   }
 );
-
-
 
 
 
