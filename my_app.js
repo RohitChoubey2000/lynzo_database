@@ -366,96 +366,87 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
 
 
 //--------[-]--------\\
-//--------[-]--------\\
-// --- Multer Storage Configuration ---
+// --- Updated Multer Storage Configuration ---
 const storage = multer.diskStorage({
-  // IMPORTANT: Ensure the 'profileImages' directory exists in your project root!
   destination: (request, file, cb) => {
-    cb(null, "./profileImages"); 
+    // We use path.join with __dirname to be 100% sure we find the right folder on Linux
+    const uploadPath = path.join(__dirname, "profileImages"); 
+    
+    // Automatically create the folder if it's missing (helps on new deployments)
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath); 
   },
   filename: (request, file, cb) => {
-    // Unique filename: timestamp + original file extension
     cb(null, Date.now() + path.extname(file.originalname));
   },
 });
 
 const upload = multer({ 
   storage: storage,
-  // Add file size limit for security (e.g., 5 MB)
-  limits: { fileSize: 1024 * 1024 * 5 },
+  limits: { fileSize: 1024 * 1024 * 5 }, // 5MB limit
 });
 
-// CRITICAL: This allows files in the 'profileImages' directory to be accessed via URL
+// Use absolute path for static serving
 app.use("/profileImages", express.static(path.join(__dirname, "profileImages")));
 
-// --- 3. Secure Profile Picture Upload/Update (POST /users/profile-picture) ---
+// --- Updated Profile Picture Route ---
 app.post(
   "/users/profile-picture",
-  authenticateToken, // 1. User must be logged in
-  upload.single("profilePic"), // 2. Upload the new file
+  authenticateToken,
+  upload.single("profilePic"),
   async (request, response) => {
-    const userId = request.user.id; // Get user ID securely from the JWT token
+    const userId = request.user.id;
 
-    // 3. Check for upload success
     if (!request.file) {
       return response.status(400).json({
-        message: "File upload failed or no file was selected. Ensure you use the 'profilePic' field in form data.",
+        message: "File upload failed. Ensure you use the 'profilePic' field in form-data.",
       });
     }
 
-    const newFilePath = path.join("profileImages", path.basename(request.file.path));
+    // Use forward slashes for the database string to stay URL-friendly
+    const newFileName = path.basename(request.file.path);
+    const dbSavePath = `profileImages/${newFileName}`;
 
     try {
-      // 4. Retrieve the existing profile path for cleanup
       const [userCheck] = await db.query(
         "SELECT UserProfile FROM users WHERE id = ?",
         [userId]
       );
 
       if (userCheck.length === 0) {
-        // Cleanup the newly uploaded file if user is suddenly missing
-        fs.unlinkSync(request.file.path); 
+        if (fs.existsSync(request.file.path)) fs.unlinkSync(request.file.path); 
         return response.status(404).json({ message: "User not found." });
       }
 
       const oldFilePath = userCheck[0].UserProfile;
 
-      // 5. Update the 'UserProfile' column with the new file path
-      const [updateResult] = await db.query(
+      await db.query(
         "UPDATE users SET UserProfile = ? WHERE id = ?",
-        [newFilePath, userId]
+        [dbSavePath, userId]
       );
 
-      // 6. Cleanup: Delete the old profile picture if it exists and is not the new one
-      if (oldFilePath && oldFilePath !== newFilePath) {
+      // Cleanup old file
+      if (oldFilePath && oldFilePath !== dbSavePath) {
         const fullOldPath = path.join(__dirname, oldFilePath);
-        try {
-          // Check if the file exists before attempting to delete
-          if (fs.existsSync(fullOldPath)) {
-            fs.unlinkSync(fullOldPath); // Synchronously delete the file
-            console.log(`Successfully deleted old profile picture: ${fullOldPath}`);
-          }
-        } catch (unlinkError) {
-          console.error(`Error deleting old file ${fullOldPath}:`, unlinkError);
-          // Don't crash the server, but log the cleanup failure
+        if (fs.existsSync(fullOldPath)) {
+          fs.unlinkSync(fullOldPath);
         }
       }
 
-      // 7. Success response
-      const publicURL = `${request.protocol}://${request.get('host')}/${newFilePath}`;
+      const publicURL = `${request.protocol}://${request.get('host')}/${dbSavePath}`;
       return response.status(200).json({
         message: "Profile picture updated successfully.",
         profileURL: publicURL,
-        dbPath: newFilePath,
       });
 
     } catch (error) {
-      console.error("Profile picture route error:", error);
-      // Delete the new file if the database update failed
-      fs.unlinkSync(request.file.path); 
-      return response
-        .status(500)
-        .json({ message: "Server internal error. Could not update profile picture. " + error });
+      console.error("UPLOAD ERROR:", error);
+      if (request.file && fs.existsSync(request.file.path)) {
+        fs.unlinkSync(request.file.path); 
+      }
+      return response.status(500).json({ message: "Internal server error during upload." });
     }
   }
 );
