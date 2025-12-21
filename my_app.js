@@ -46,6 +46,34 @@ const authenticateToken = (request, response, next) => {
 
 // ------------------------------------------
 
+// Get a specific user's details by ID
+app.get("/get/users/:id", async (request, response) => {
+  try {
+    // 1. Extract the ID from the URL parameters
+    const userId = request.params.id;
+
+    // 2. Query the database for that specific ID
+    // We select specific fields for security (don't send the PasswordHash back!)
+    const [result] = await db.query(
+      "SELECT id, Email, FirstName, LastName, PhoneNumber, UserProfile FROM users WHERE id = ?", 
+      [userId]
+    );
+
+    // 3. Check if a user was actually found
+    if (result.length > 0) {
+      // Return the first (and only) user in the array
+      response.status(200).json(result[0]);
+    } else {
+      // If the array is empty, the user doesn't exist
+      response.status(404).json({ message: "User not found." });
+    }
+
+  } catch (error) {
+    console.error("Error fetching user by ID:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
 
 
 
@@ -54,6 +82,8 @@ app.get("/get/users", async (request, response) => {
   const [result] = await db.query("SELECT *From users");
   response.status(200).json(result);
 });
+
+
 // Protected route to get user details based on token
 app.get("/users", authenticateToken, (request, response) => {
   // The user information is already available in request.user from the middleware
@@ -276,9 +306,7 @@ app.post("/users/reset-password", async (request, response) => {
         .status(400)
         .json({ message: "Password reset token is invalid or has expired." });
     }
-
     const userId = users[0].id;
-
     // 2. Hash the new password
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
