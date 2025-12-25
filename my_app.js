@@ -12,6 +12,7 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 const fs = require("fs");
+const PORT = process.env.PORT
 
 
 
@@ -132,7 +133,6 @@ app.post("/users/signup", async (request, response) => {
 
 
 // -----[Post method for Login ()]-----
-
 app.post("/users/login", async (request, response) => {
   const email = request.body.email;
   const password = request.body.password;
@@ -480,7 +480,6 @@ app.post(
 );
 
 
-
-app.listen(3500, () => {
-  console.log("Server is running on port 3500");
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
