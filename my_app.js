@@ -16,7 +16,23 @@ const PORT = process.env.PORT
 
 
 
-
+//--------[-]--------\\
+// --- Updated Multer Storage Configuration ---
+const storage = multer.diskStorage({
+  destination: (request, file, cb) => {
+    // We use path.join with __dirname to be 100% sure we find the right folder on Linux
+    const uploadPath = path.join(__dirname, "profileImages"); 
+    
+    // Automatically create the folder if it's missing (helps on new deployments)
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath); 
+  },
+  filename: (request, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  },
+});
 
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
@@ -393,99 +409,12 @@ app.put("/users/:id", authenticateToken, async (request, response) => {
 });
 
 // Updated Route: No 'authenticateToken', supports Profile Pic + Info
-app.put("/users/:id", upload.single("profilePic"), async (request, response) => {
-  const userIdFromParams = parseInt(request.params.id, 10);
-
-  // Validate ID
-  if (isNaN(userIdFromParams)) {
-    return response.status(400).json({ message: "Invalid User ID format." });
-  }
-
-  // Fields from form-data (text fields)
-  const { firstName, lastName, phoneNumber } = request.body;
-  
-  let updateFields = [];
-  let queryParams = [];
-
-  // 1. Handle Text Fields
-  if (firstName) {
-    updateFields.push("FirstName = ?");
-    queryParams.push(firstName);
-  }
-  if (lastName) {
-    updateFields.push("LastName = ?");
-    queryParams.push(lastName);
-  }
-  if (phoneNumber) {
-    updateFields.push("PhoneNumber = ?");
-    queryParams.push(phoneNumber);
-  }
-
-  // 2. Handle Profile Picture (if uploaded)
-  if (request.file) {
-    const newFileName = path.basename(request.file.path);
-    const dbSavePath = `profileImages/${newFileName}`;
-    updateFields.push("UserProfile = ?");
-    queryParams.push(dbSavePath);
-  }
-
-  // If no fields and no file provided
-  if (updateFields.length === 0) {
-    return response.status(400).json({ message: "No update fields provided." });
-  }
-
-  try {
-    // Optional: If a new image is uploaded, delete the old one from the server
-    if (request.file) {
-      const [userCheck] = await db.query("SELECT UserProfile FROM users WHERE id = ?", [userIdFromParams]);
-      if (userCheck.length > 0 && userCheck[0].UserProfile) {
-        const oldFilePath = path.join(__dirname, userCheck[0].UserProfile);
-        if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
-      }
-    }
-
-    // 3. Execute the update
-    const sqlQuery = `UPDATE users SET ${updateFields.join(", ")} WHERE id = ?`;
-    queryParams.push(userIdFromParams);
-
-    const [result] = await db.query(sqlQuery, queryParams);
-
-    if (result.affectedRows === 0) {
-      // If user not found, delete the newly uploaded file to save space
-      if (request.file) fs.unlinkSync(request.file.path);
-      return response.status(404).json({ message: "User not found." });
-    }
-
-    return response.status(200).json({
-      message: `User (ID: ${userIdFromParams}) updated successfully.`,
-      updatedFields: { firstName, lastName, phoneNumber, profilePic: request.file ? request.file.filename : "Not changed" },
-    });
-
-  } catch (error) {
-    console.error("Update error:", error);
-    if (request.file) fs.unlinkSync(request.file.path); // Clean up on error
-    return response.status(500).json({ message: "Server internal error." });
-  }
-});
+// Ensure this is placed AFTER your 'const upload = multer(...)' line
 
 
-//--------[-]--------\\
-// --- Updated Multer Storage Configuration ---
-const storage = multer.diskStorage({
-  destination: (request, file, cb) => {
-    // We use path.join with __dirname to be 100% sure we find the right folder on Linux
-    const uploadPath = path.join(__dirname, "profileImages"); 
-    
-    // Automatically create the folder if it's missing (helps on new deployments)
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath); 
-  },
-  filename: (request, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
+
+
+//
 
 const upload = multer({ 
   storage: storage,
@@ -554,6 +483,60 @@ app.post(
     }
   }
 );
+
+app.put("/users/:id", (req, res, next) => {
+  // We wrap it in a custom function to catch "upload" reference errors
+  upload.single("profilePic")(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ message: "File too large or invalid." });
+    } else if (err) {
+      return res.status(500).json({ message: "Upload error." });
+    }
+    next();
+  });
+}, async (request, response) => {
+  const userIdFromParams = parseInt(request.params.id, 10);
+
+  if (isNaN(userIdFromParams)) {
+    return response.status(400).json({ message: "Invalid User ID format." });
+  }
+
+  const { firstName, lastName, phoneNumber } = request.body;
+  let updateFields = [];
+  let queryParams = [];
+
+  // Update logic for text
+  if (firstName) { updateFields.push("FirstName = ?"); queryParams.push(firstName); }
+  if (lastName) { updateFields.push("LastName = ?"); queryParams.push(lastName); }
+  if (phoneNumber) { updateFields.push("PhoneNumber = ?"); queryParams.push(phoneNumber); }
+
+  // Update logic for image
+  if (request.file) {
+    const dbSavePath = `profileImages/${path.basename(request.file.path)}`;
+    updateFields.push("UserProfile = ?");
+    queryParams.push(dbSavePath);
+  }
+
+  if (updateFields.length === 0) {
+    return response.status(400).json({ message: "No fields to update." });
+  }
+
+  try {
+    const sqlQuery = `UPDATE users SET ${updateFields.join(", ")} WHERE id = ?`;
+    queryParams.push(userIdFromParams);
+
+    const [result] = await db.query(sqlQuery, queryParams);
+
+    if (result.affectedRows === 0) {
+      return response.status(404).json({ message: "User not found." });
+    }
+
+    response.status(200).json({ message: "Updated successfully" });
+  } catch (error) {
+    console.error(error);
+    response.status(500).json({ message: "Database error" });
+  }
+});
 
 
 app.listen(PORT, () => {
