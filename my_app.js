@@ -539,6 +539,52 @@ app.put("/users/:id", (req, res, next) => {
 });
 
 
+
+// DELETE user by ID (Self-deletion only)
+app.delete("/users/:id", authenticateToken, async (request, response) => {
+  // 1. Get IDs
+  const userIdFromParams = parseInt(request.params.id, 10); // ID in URL
+  const userIdFromToken = request.user.id;                  // ID from JWT
+
+  // 2. Security Check: Compare the token ID with the requested ID
+  if (userIdFromToken !== userIdFromParams) {
+    return response.status(403).json({
+      message: "Forbidden: You can only delete your own account.",
+    });
+  }
+
+  try {
+    // 3. Find user to get the profile image path (for file cleanup)
+    const [user] = await db.query("SELECT UserProfile FROM users WHERE id = ?", [userIdFromParams]);
+    
+    if (user.length === 0) {
+      return response.status(404).json({ message: "User not found." });
+    }
+
+    const profilePath = user[0].UserProfile;
+
+    // 4. Delete the user from the database
+    const [result] = await db.query("DELETE FROM users WHERE id = ?", [userIdFromParams]);
+
+    if (result.affectedRows > 0) {
+      // 5. Cleanup: Delete the actual file from the 'profileImages' folder
+      if (profilePath) {
+        const fullPath = path.join(__dirname, profilePath);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+
+      return response.status(200).json({ message: "Your account has been deleted successfully." });
+    } else {
+      return response.status(404).json({ message: "User not found." });
+    }
+  } catch (error) {
+    console.error("Delete user error:", error);
+    return response.status(500).json({ message: "Internal server error while deleting user." });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
