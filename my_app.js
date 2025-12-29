@@ -34,6 +34,22 @@ const storage = multer.diskStorage({
   },
 });
 
+// Configuration for Category Images
+const categoryUploadPath = path.join(__dirname, "categoryImages");
+const categoryStorage = multer.diskStorage({
+  destination: (request, file, cb) => {
+    if (!fs.existsSync(categoryUploadPath)) {
+      fs.mkdirSync(categoryUploadPath, { recursive: true });
+    }
+    cb(null, categoryUploadPath);
+  },
+  filename: (request, file, cb) => {
+    cb(null, "cat-" + Date.now() + path.extname(file.originalname));
+  },
+});
+const uploadCategory = multer({ storage: categoryStorage });
+app.use("/categoryImages", express.static(categoryUploadPath));
+
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
 const authenticateToken = (request, response, next) => {
@@ -582,6 +598,101 @@ app.delete("/users/:id", authenticateToken, async (request, response) => {
   } catch (error) {
     console.error("Delete user error:", error);
     return response.status(500).json({ message: "Internal server error while deleting user." });
+  }
+});
+
+// 1. GET all categories (Now with full URLs)
+app.get("/categories", async (request, response) => {
+  try {
+    const [categories] = await db.query("SELECT * FROM Categories");
+    
+    // Map through categories to add the full server URL to the image path
+    const categoriesWithUrls = categories.map(cat => ({
+      ...cat,
+      image: cat.image ? `${request.protocol}://${request.get('host')}/${cat.image}` : null
+    }));
+
+    response.status(200).json(categoriesWithUrls);
+  } catch (error) {
+    console.error("Error fetching categories:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+// 2. GET only featured categories (Now with full URLs)
+app.get("/categories/featured", async (request, response) => {
+  try {
+    const [featured] = await db.query("SELECT * FROM Categories WHERE isFeatured = 1");
+    
+    const featuredWithUrls = featured.map(cat => ({
+      ...cat,
+      image: cat.image ? `${request.protocol}://${request.get('host')}/${cat.image}` : null
+    }));
+
+    response.status(200).json(featuredWithUrls);
+  } catch (error) {
+    console.error("Error fetching featured categories:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+// 3. POST - Add a new category (With Multer)
+app.post("/categories", uploadCategory.single("image"), async (request, response) => {
+  const { name, parentId, isFeatured } = request.body;
+
+  if (!name) {
+    return response.status(400).json({ message: "Category name is required." });
+  }
+
+  const dbSavePath = request.file ? `categoryImages/${request.file.filename}` : null;
+
+  try {
+    const featuredValue = (isFeatured === "true" || isFeatured === "1" || isFeatured === true) ? 1 : 0;
+
+    const [result] = await db.query(
+      "INSERT INTO Categories (name, image, parentId, isFeatured) VALUES (?, ?, ?, ?)",
+      [name, dbSavePath, parentId || null, featuredValue]
+    );
+
+    response.status(201).json({
+      message: "Category created successfully",
+      id: result.insertId,
+      image: dbSavePath ? `${request.protocol}://${request.get('host')}/${dbSavePath}` : null
+    });
+  } catch (error) {
+    console.error("Error creating category:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+// 4. DELETE a category (With File Cleanup)
+app.delete("/categories/:id", async (request, response) => {
+  const categoryId = request.params.id;
+  try {
+    // First, find the image path to delete the file
+    const [category] = await db.query("SELECT image FROM Categories WHERE id = ?", [categoryId]);
+    
+    if (category.length === 0) {
+      return response.status(404).json({ message: "Category not found." });
+    }
+
+    const imagePath = category[0].image;
+
+    // Delete from Database
+    await db.query("DELETE FROM Categories WHERE id = ?", [categoryId]);
+
+    // Delete the physical file from the server folder
+    if (imagePath) {
+      const fullPath = path.join(__dirname, imagePath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    }
+
+    response.status(200).json({ message: "Category and associated image deleted successfully." });
+  } catch (error) {
+    console.error("Error deleting category:", error);
+    response.status(500).json({ message: "Internal server error." });
   }
 });
 
