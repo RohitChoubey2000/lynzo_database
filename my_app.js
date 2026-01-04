@@ -50,6 +50,23 @@ const categoryStorage = multer.diskStorage({
 const uploadCategory = multer({ storage: categoryStorage });
 app.use("/categoryImages", express.static(categoryUploadPath));
 
+
+// Configuration for Banner Images
+const bannerUploadPath = path.join(__dirname, "bannerImages");
+const bannerStorage = multer.diskStorage({
+  destination: (request, file, cb) => {
+    if (!fs.existsSync(bannerUploadPath)) {
+      fs.mkdirSync(bannerUploadPath, { recursive: true });
+    }
+    cb(null, bannerUploadPath);
+  },
+  filename: (request, file, cb) => {
+    cb(null, "banner-" + Date.now() + path.extname(file.originalname));
+  },
+});
+const uploadBanner = multer({ storage: bannerStorage });
+app.use("/bannerImages", express.static(bannerUploadPath));
+
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
 const authenticateToken = (request, response, next) => {
@@ -695,6 +712,74 @@ app.delete("/categories/:id", async (request, response) => {
     response.status(500).json({ message: "Internal server error." });
   }
 });
+
+
+// --- Banner Routes ---
+
+// POST - Add a new banner with an image file
+app.post("/banners", uploadBanner.single("image"), async (request, response) => {
+  const { active, targetScreen } = request.body;
+
+  // 1. Validation: Image and TargetScreen are required
+  if (!request.file) {
+    return response.status(400).json({ message: "Banner image is required." });
+  }
+  if (!targetScreen) {
+    return response.status(400).json({ message: "targetScreen is required." });
+  }
+
+  // Generate unique bannerId (VARCHAR 50)
+  const bannerId = crypto.randomBytes(12).toString("hex");
+  const dbSavePath = `bannerImages/${request.file.filename}`;
+
+  try {
+    // Convert 'active' string from form-data to boolean/tinyint
+    const activeValue = (active === "true" || active === "1" || active === true) ? 1 : 0;
+
+    const [result] = await db.query(
+      "INSERT INTO Banners (bannerId, active, imageUrl, targetScreen) VALUES (?, ?, ?, ?)",
+      [bannerId, activeValue, dbSavePath, targetScreen]
+    );
+
+    response.status(201).json({
+      success: true,
+      message: "Banner created successfully",
+      data: {
+        bannerId,
+        active: !!activeValue,
+        imageUrl: `${request.protocol}://${request.get('host')}/${dbSavePath}`,
+        targetScreen
+      }
+    });
+  } catch (error) {
+    console.error("Error creating banner:", error);
+    
+    // Cleanup: If DB fails, delete the uploaded file
+    if (request.file) {
+      fs.unlinkSync(request.file.path);
+    }
+    
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+// GET - Get all banners (Useful for your Flutter Carousel)
+app.get("/banners", async (request, response) => {
+  try {
+    const [banners] = await db.query("SELECT * FROM Banners");
+    const bannersWithUrls = banners.map(b => ({
+      ...b,
+      active: !!b.active, // ensure it returns as boolean
+      imageUrl: `${request.protocol}://${request.get('host')}/${b.imageUrl}`
+    }));
+    response.status(200).json(bannersWithUrls);
+  } catch (error) {
+    console.error("Error fetching banners:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
