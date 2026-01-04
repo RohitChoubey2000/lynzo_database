@@ -67,6 +67,25 @@ const bannerStorage = multer.diskStorage({
 const uploadBanner = multer({ storage: bannerStorage });
 app.use("/bannerImages", express.static(bannerUploadPath));
 
+
+// Configuration for Brand Images
+const brandUploadPath = path.join(__dirname, "brandImages");
+const brandStorage = multer.diskStorage({
+  destination: (request, file, cb) => {
+    if (!fs.existsSync(brandUploadPath)) {
+      fs.mkdirSync(brandUploadPath, { recursive: true });
+    }
+    cb(null, brandUploadPath);
+  },
+  filename: (request, file, cb) => {
+    // Prefixing with 'brand-' for organization
+    cb(null, "brand-" + Date.now() + path.extname(file.originalname));
+  },
+});
+
+const uploadBrand = multer({ storage: brandStorage });
+app.use("/brandImages", express.static(brandUploadPath));
+
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
 const authenticateToken = (request, response, next) => {
@@ -775,6 +794,74 @@ app.get("/banners", async (request, response) => {
     response.status(200).json(bannersWithUrls);
   } catch (error) {
     console.error("Error fetching banners:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+// POST - Add a new Brand (With Multer for Image)
+app.post("/brands", uploadBrand.single("image"), async (request, response) => {
+  const { name, isFeatured, productsCount } = request.body;
+
+  // 1. Validation
+  if (!name) {
+    return response.status(400).json({ message: "Brand name is required." });
+  }
+  if (!request.file) {
+    return response.status(400).json({ message: "Brand image is required." });
+  }
+
+  // Use the alphanumeric ID logic (similar to your Firestore screenshot)
+  const brandId = crypto.randomBytes(10).toString("hex");
+  const dbSavePath = `brandImages/${request.file.filename}`;
+
+  try {
+    // Convert boolean types for SQL (0 or 1)
+    const featuredValue = (isFeatured === "true" || isFeatured === "1" || isFeatured === true) ? 1 : 0;
+    const countValue = parseInt(productsCount) || 0;
+
+    const [result] = await db.query(
+      "INSERT INTO Brands (id, name, image, isFeatured, productsCount) VALUES (?, ?, ?, ?, ?)",
+      [brandId, name, dbSavePath, featuredValue, countValue]
+    );
+
+    response.status(201).json({
+      success: true,
+      message: "Brand created successfully",
+      data: {
+        id: brandId,
+        name,
+        image: `${request.protocol}://${request.get('host')}/${dbSavePath}`,
+        isFeatured: !!featuredValue,
+        productsCount: countValue
+      }
+    });
+  } catch (error) {
+    console.error("Error creating brand:", error);
+    
+    // Cleanup: Remove file if DB insert fails
+    if (request.file) {
+      fs.unlinkSync(request.file.path);
+    }
+    
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+
+// GET - Get all Brands (Required for your Flutter UI)
+app.get("/brands", async (request, response) => {
+  try {
+    const [brands] = await db.query("SELECT * FROM Brands");
+    
+    const brandsWithUrls = brands.map(brand => ({
+      ...brand,
+      isFeatured: brand.isFeatured === 1 || brand.isFeatured === true, 
+      image: brand.image ? `${request.protocol}://${request.get('host')}/${brand.image}` : null
+    }));
+
+    response.status(200).json(brandsWithUrls);
+  } catch (error) {
+    console.error("Error fetching brands:", error);
     response.status(500).json({ message: "Internal server error." });
   }
 });
