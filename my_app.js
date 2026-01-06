@@ -88,11 +88,13 @@ app.use("/brandImages", express.static(brandUploadPath));
 // Configuration for Product Thumbnails
 const productUploadPath = path.join(__dirname, "productImages");
 const productStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    if (!fs.existsSync(productUploadPath)) fs.mkdirSync(productUploadPath, { recursive: true });
+  destination: (request, file, cb) => {
+    if (!fs.existsSync(productUploadPath)) {
+      fs.mkdirSync(productUploadPath, { recursive: true });
+    }
     cb(null, productUploadPath);
   },
-  filename: (req, file, cb) => {
+  filename: (request, file, cb) => {
     cb(null, "prod-" + Date.now() + path.extname(file.originalname));
   },
 });
@@ -879,19 +881,21 @@ app.get("/brands", async (request, response) => {
   }
 });
 
-app.post("/products", uploadProduct.single("thumbnail"), async (req, res) => {
+// --- Product Routes ---
+
+// 1. POST - Add a new product
+app.post("/products", uploadProduct.single("thumbnail"), async (request, response) => {
   try {
     const {
       id, title, stock, sku, price, salePrice, 
       isFeatured, productType, description, categoryId,
       brand, images, productAttributes, productVariations 
-    } = req.body;
+    } = request.body;
 
-    // 1. Path for the uploaded thumbnail
-    const thumbnailPath = req.file ? `productImages/${req.file.filename}` : "";
+    // Path for the uploaded thumbnail
+    const thumbnailPath = request.file ? `productImages/${request.file.filename}` : "";
 
-    // 2. Format complex fields for SQL (convert to JSON strings)
-    // We check if they are already strings (from form-data) or objects
+    // Convert complex fields to JSON strings for SQL storage
     const brandData = typeof brand === 'string' ? brand : JSON.stringify(brand || {});
     const imagesData = typeof images === 'string' ? images : JSON.stringify(images || []);
     const attrData = typeof productAttributes === 'string' ? productAttributes : JSON.stringify(productAttributes || []);
@@ -902,47 +906,62 @@ app.post("/products", uploadProduct.single("thumbnail"), async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
     const values = [
-      id, title, parseInt(stock) || 0, sku, price, salePrice || 0.0, 
-      thumbnailPath, (isFeatured === "true" || isFeatured === "1") ? 1 : 0, 
-      productType, description, categoryId, 
-      brandData, imagesData, attrData, varData
+      id || crypto.randomBytes(10).toString("hex"), 
+      title, 
+      parseInt(stock) || 0, 
+      sku, 
+      parseFloat(price) || 0.0, 
+      parseFloat(salePrice) || 0.0, 
+      thumbnailPath, 
+      (isFeatured === "true" || isFeatured === "1" || isFeatured === true) ? 1 : 0, 
+      productType, 
+      description, 
+      categoryId, 
+      brandData, 
+      imagesData, 
+      attrData, 
+      varData
     ];
 
     await db.query(sql, values);
 
-    res.status(201).json({ message: "Product created successfully!", id });
+    response.status(201).json({ message: "Product created successfully!", id });
   } catch (error) {
     console.error("Error creating product:", error);
-    res.status(500).json({ message: "Internal server error." });
+    response.status(500).json({ message: "Internal server error." });
   }
 });
 
-// get method for products -
-app.get("/products", async (req, res) => {
+// 2. GET - Get all products
+app.get("/products", async (request, response) => {
   try {
     const [rows] = await db.query("SELECT * FROM Products");
 
     const products = rows.map(product => {
       return {
         ...product,
-        // Convert strings back to JSON for the Flutter Model
-        brand: JSON.parse(product.brand || '{}'),
-        images: JSON.parse(product.images || '[]'),
-        productAttributes: JSON.parse(product.productAttributes || '[]'),
-        productVariations: JSON.parse(product.productVariations || '[]'),
-        // Generate full URL for the thumbnail image
-        thumbnail: product.thumbnail ? `${req.protocol}://${req.get('host')}/${product.thumbnail}` : null,
-        // Ensure boolean conversion for isFeatured
-        isFeatured: product.isFeatured === 1
+        // Convert strings back to JSON objects for the Flutter Model
+        brand: typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand,
+        images: typeof product.images === 'string' ? JSON.parse(product.images) : product.images,
+        productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
+        productVariations: typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations,
+        
+        // Generate full URL for the thumbnail
+        thumbnail: product.thumbnail ? `${request.protocol}://${request.get('host')}/${product.thumbnail}` : null,
+        
+        // Ensure boolean conversion
+        isFeatured: product.isFeatured === 1 || product.isFeatured === true
       };
     });
 
-    res.status(200).json(products);
+    response.status(200).json(products);
   } catch (error) {
     console.error("Error fetching products:", error);
-    res.status(500).json({ message: "Internal server error." });
+    response.status(500).json({ message: "Internal server error." });
   }
 });
+
+
 
 
 app.listen(PORT, () => {
