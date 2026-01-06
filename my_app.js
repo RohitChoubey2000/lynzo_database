@@ -948,34 +948,55 @@ app.post("/products", uploadProduct.fields([
   }
 });
 
-// 2. UPDATED GET - Generates full URLs for EVERYTHING
 app.get("/products", async (request, response) => {
   try {
-    const [rows] = await db.query("SELECT * FROM Products");
+    // 1. GET Query Parameters from the URL
+    const { isFeatured, limit } = request.query;
+
+    // 2. BUILD THE SQL QUERY DYNAMICALLY
+    let sql = "SELECT * FROM Products";
+    let params = [];
+
+    if (isFeatured === 'true') {
+      sql += " WHERE isFeatured = 1"; // MySQL uses 1 for true
+    }
+
+    if (limit) {
+      sql += " LIMIT ?";
+      params.push(parseInt(limit));
+    }
+
+    const [rows] = await db.query(sql, params);
     const host = `${request.protocol}://${request.get('host')}`;
 
     const products = rows.map(product => {
-      // Parse JSON strings
       const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
       const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
+      
+      // Parse variations to fix their internal image URLs too
+      let variations = typeof product.productVariations === 'string' 
+          ? JSON.parse(product.productVariations) 
+          : product.productVariations;
+
+      if (Array.isArray(variations)) {
+        variations = variations.map(v => ({
+          ...v,
+          image: v.image ? (v.image.startsWith('http') ? v.image : `${host}/${v.image}`) : ""
+        }));
+      }
 
       return {
         ...product,
-        // Fix Brand Image URL inside the product
         brand: brandObj ? {
           ...brandObj,
           image: brandObj.image ? (brandObj.image.startsWith('http') ? brandObj.image : `${host}/${brandObj.image}`) : ""
         } : null,
-
-        // Fix Gallery Images URLs
         images: Array.isArray(imagesList) ? imagesList.map(img => img.startsWith('http') ? img : `${host}/${img}`) : [],
-
-        // Fix Thumbnail URL
-        thumbnail: product.thumbnail ? `${host}/${product.thumbnail}` : null,
-        
+        thumbnail: product.thumbnail ? (product.thumbnail.startsWith('http') ? product.thumbnail : `${host}/${product.thumbnail}`) : null,
         productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
-        productVariations: typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations,
-        isFeatured: product.isFeatured === 1 || product.isFeatured === true
+        productVariations: variations,
+        // Ensure boolean return for Flutter
+        isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
       };
     });
 
