@@ -882,22 +882,31 @@ app.get("/brands", async (request, response) => {
 });
 
 // --- Product Routes ---
-
-// 1. POST - Add a new product
-app.post("/products", uploadProduct.single("thumbnail"), async (request, response) => {
+// 1. UPDATED POST - Handles Thumbnail + Gallery Images
+app.post("/products", uploadProduct.fields([
+  { name: 'thumbnail', maxCount: 1 },
+  { name: 'images', maxCount: 10 } // Allows up to 10 gallery images
+]), async (request, response) => {
   try {
     const {
       id, title, stock, sku, price, salePrice, 
       isFeatured, productType, description, categoryId,
-      brand, images, productAttributes, productVariations 
+      brand, productAttributes, productVariations 
     } = request.body;
 
-    // Path for the uploaded thumbnail
-    const thumbnailPath = request.file ? `productImages/${request.file.filename}` : "";
+    // 1. Handle Thumbnail Path
+    const thumbnailPath = request.files['thumbnail'] ? `productImages/${request.files['thumbnail'][0].filename}` : "";
 
-    // Convert complex fields to JSON strings for SQL storage
+    // 2. Handle Gallery Images Path (New Logic)
+    let finalImages = [];
+    if (request.files['images']) {
+      finalImages = request.files['images'].map(file => `productImages/${file.filename}`);
+    }
+
+    // 3. Convert complex fields to JSON strings
+    // If Flutter sends them as objects, we stringify. If they are already strings, we keep them.
     const brandData = typeof brand === 'string' ? brand : JSON.stringify(brand || {});
-    const imagesData = typeof images === 'string' ? images : JSON.stringify(images || []);
+    const imagesData = JSON.stringify(finalImages); // Store the actual uploaded paths
     const attrData = typeof productAttributes === 'string' ? productAttributes : JSON.stringify(productAttributes || []);
     const varData = typeof productVariations === 'string' ? productVariations : JSON.stringify(productVariations || []);
 
@@ -924,7 +933,6 @@ app.post("/products", uploadProduct.single("thumbnail"), async (request, respons
     ];
 
     await db.query(sql, values);
-
     response.status(201).json({ message: "Product created successfully!", id });
   } catch (error) {
     console.error("Error creating product:", error);
@@ -932,24 +940,33 @@ app.post("/products", uploadProduct.single("thumbnail"), async (request, respons
   }
 });
 
-// 2. GET - Get all products
+// 2. UPDATED GET - Generates full URLs for EVERYTHING
 app.get("/products", async (request, response) => {
   try {
     const [rows] = await db.query("SELECT * FROM Products");
+    const host = `${request.protocol}://${request.get('host')}`;
 
     const products = rows.map(product => {
+      // Parse JSON strings
+      const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
+      const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
+
       return {
         ...product,
-        // Convert strings back to JSON objects for the Flutter Model
-        brand: typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand,
-        images: typeof product.images === 'string' ? JSON.parse(product.images) : product.images,
+        // Fix Brand Image URL inside the product
+        brand: brandObj ? {
+          ...brandObj,
+          image: brandObj.image ? (brandObj.image.startsWith('http') ? brandObj.image : `${host}/${brandObj.image}`) : ""
+        } : null,
+
+        // Fix Gallery Images URLs
+        images: Array.isArray(imagesList) ? imagesList.map(img => img.startsWith('http') ? img : `${host}/${img}`) : [],
+
+        // Fix Thumbnail URL
+        thumbnail: product.thumbnail ? `${host}/${product.thumbnail}` : null,
+        
         productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
         productVariations: typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations,
-        
-        // Generate full URL for the thumbnail
-        thumbnail: product.thumbnail ? `${request.protocol}://${request.get('host')}/${product.thumbnail}` : null,
-        
-        // Ensure boolean conversion
         isFeatured: product.isFeatured === 1 || product.isFeatured === true
       };
     });
@@ -960,9 +977,6 @@ app.get("/products", async (request, response) => {
     response.status(500).json({ message: "Internal server error." });
   }
 });
-
-
-
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
