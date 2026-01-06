@@ -82,9 +82,22 @@ const brandStorage = multer.diskStorage({
     cb(null, "brand-" + Date.now() + path.extname(file.originalname));
   },
 });
-
 const uploadBrand = multer({ storage: brandStorage });
 app.use("/brandImages", express.static(brandUploadPath));
+
+// Configuration for Product Thumbnails
+const productUploadPath = path.join(__dirname, "productImages");
+const productStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(productUploadPath)) fs.mkdirSync(productUploadPath, { recursive: true });
+    cb(null, productUploadPath);
+  },
+  filename: (req, file, cb) => {
+    cb(null, "prod-" + Date.now() + path.extname(file.originalname));
+  },
+});
+const uploadProduct = multer({ storage: productStorage });
+app.use("/productImages", express.static(productUploadPath));
 
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
 // This function verifies the JWT token sent in the Authorization header
@@ -866,6 +879,70 @@ app.get("/brands", async (request, response) => {
   }
 });
 
+app.post("/products", uploadProduct.single("thumbnail"), async (req, res) => {
+  try {
+    const {
+      id, title, stock, sku, price, salePrice, 
+      isFeatured, productType, description, categoryId,
+      brand, images, productAttributes, productVariations 
+    } = req.body;
+
+    // 1. Path for the uploaded thumbnail
+    const thumbnailPath = req.file ? `productImages/${req.file.filename}` : "";
+
+    // 2. Format complex fields for SQL (convert to JSON strings)
+    // We check if they are already strings (from form-data) or objects
+    const brandData = typeof brand === 'string' ? brand : JSON.stringify(brand || {});
+    const imagesData = typeof images === 'string' ? images : JSON.stringify(images || []);
+    const attrData = typeof productAttributes === 'string' ? productAttributes : JSON.stringify(productAttributes || []);
+    const varData = typeof productVariations === 'string' ? productVariations : JSON.stringify(productVariations || []);
+
+    const sql = `INSERT INTO Products 
+      (id, title, stock, sku, price, salePrice, thumbnail, isFeatured, productType, description, categoryId, brand, images, productAttributes, productVariations) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    const values = [
+      id, title, parseInt(stock) || 0, sku, price, salePrice || 0.0, 
+      thumbnailPath, (isFeatured === "true" || isFeatured === "1") ? 1 : 0, 
+      productType, description, categoryId, 
+      brandData, imagesData, attrData, varData
+    ];
+
+    await db.query(sql, values);
+
+    res.status(201).json({ message: "Product created successfully!", id });
+  } catch (error) {
+    console.error("Error creating product:", error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+});
+
+// get method for products -
+app.get("/products", async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT * FROM Products");
+
+    const products = rows.map(product => {
+      return {
+        ...product,
+        // Convert strings back to JSON for the Flutter Model
+        brand: JSON.parse(product.brand || '{}'),
+        images: JSON.parse(product.images || '[]'),
+        productAttributes: JSON.parse(product.productAttributes || '[]'),
+        productVariations: JSON.parse(product.productVariations || '[]'),
+        // Generate full URL for the thumbnail image
+        thumbnail: product.thumbnail ? `${req.protocol}://${req.get('host')}/${product.thumbnail}` : null,
+        // Ensure boolean conversion for isFeatured
+        isFeatured: product.isFeatured === 1
+      };
+    });
+
+    res.status(200).json(products);
+  } catch (error) {
+    console.error("Error fetching products:", error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+});
 
 
 app.listen(PORT, () => {
