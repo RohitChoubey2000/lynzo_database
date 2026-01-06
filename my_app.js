@@ -882,10 +882,9 @@ app.get("/brands", async (request, response) => {
 });
 
 // --- Product Routes ---
-// 1. UPDATED POST - Handles Thumbnail + Gallery Images
 app.post("/products", uploadProduct.fields([
   { name: 'thumbnail', maxCount: 1 },
-  { name: 'images', maxCount: 10 } // Allows up to 10 gallery images
+  { name: 'images', maxCount: 10 }
 ]), async (request, response) => {
   try {
     const {
@@ -894,21 +893,38 @@ app.post("/products", uploadProduct.fields([
       brand, productAttributes, productVariations 
     } = request.body;
 
-    // 1. Handle Thumbnail Path
+    // 1. Get the ACTUAL filenames saved by Multer
     const thumbnailPath = request.files['thumbnail'] ? `productImages/${request.files['thumbnail'][0].filename}` : "";
-
-    // 2. Handle Gallery Images Path (New Logic)
-    let finalImages = [];
+    
+    // Map original filenames to new Multer filenames
+    // This solves the mismatch between Flutter and Node.js
+    const fileMapping = {};
     if (request.files['images']) {
-      finalImages = request.files['images'].map(file => `productImages/${file.filename}`);
+      request.files['images'].forEach(file => {
+        // file.originalname is "tshirt.jpg"
+        // file.filename is "1736152847-tshirt.jpg"
+        fileMapping[`productImages/${file.originalname}`] = `productImages/${file.filename}`;
+      });
     }
 
-    // 3. Convert complex fields to JSON strings
-    // If Flutter sends them as objects, we stringify. If they are already strings, we keep them.
+    const finalImages = Object.values(fileMapping);
+
+    // 2. Fix Variation Images (Server-Side Correction)
+    let parsedVariations = typeof productVariations === 'string' ? JSON.parse(productVariations) : (productVariations || []);
+    
+    parsedVariations = parsedVariations.map(variation => {
+      // If the variation image matches an original path, update it to the ACTUAL server path
+      if (fileMapping[variation.image]) {
+        return { ...variation, image: fileMapping[variation.image] };
+      }
+      return variation;
+    });
+
+    // 3. Convert to JSON for SQL
     const brandData = typeof brand === 'string' ? brand : JSON.stringify(brand || {});
-    const imagesData = JSON.stringify(finalImages); // Store the actual uploaded paths
+    const imagesData = JSON.stringify(finalImages);
     const attrData = typeof productAttributes === 'string' ? productAttributes : JSON.stringify(productAttributes || []);
-    const varData = typeof productVariations === 'string' ? productVariations : JSON.stringify(productVariations || []);
+    const varData = JSON.stringify(parsedVariations); // Use the corrected variations
 
     const sql = `INSERT INTO Products 
       (id, title, stock, sku, price, salePrice, thumbnail, isFeatured, productType, description, categoryId, brand, images, productAttributes, productVariations) 
@@ -916,20 +932,12 @@ app.post("/products", uploadProduct.fields([
 
     const values = [
       id || crypto.randomBytes(10).toString("hex"), 
-      title, 
-      parseInt(stock) || 0, 
-      sku, 
-      parseFloat(price) || 0.0, 
-      parseFloat(salePrice) || 0.0, 
+      title, parseInt(stock) || 0, sku, 
+      parseFloat(price) || 0.0, parseFloat(salePrice) || 0.0, 
       thumbnailPath, 
       (isFeatured === "true" || isFeatured === "1" || isFeatured === true) ? 1 : 0, 
-      productType, 
-      description, 
-      categoryId, 
-      brandData, 
-      imagesData, 
-      attrData, 
-      varData
+      productType, description, categoryId, 
+      brandData, imagesData, attrData, varData
     ];
 
     await db.query(sql, values);
