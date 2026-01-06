@@ -95,7 +95,7 @@ const productStorage = multer.diskStorage({
     cb(null, productUploadPath);
   },
   filename: (request, file, cb) => {
-    cb(null, "prod-" + Date.now() + path.extname(file.originalname));
+   cb(null, Date.now() + "-" + file.originalname);
   },
 });
 const uploadProduct = multer({ storage: productStorage });
