@@ -881,71 +881,91 @@ app.get("/brands", async (request, response) => {
   }
 });
 
-// --- Product Routes ---
-app.post("/products", uploadProduct.fields([
-  { name: 'thumbnail', maxCount: 1 },
-  { name: 'images', maxCount: 10 }
-]), async (request, response) => {
-  try {
-    const {
-      id, title, stock, sku, price, salePrice, 
-      isFeatured, productType, description, categoryId,
-      brand, productAttributes, productVariations 
-    } = request.body;
-
-    // 1. Get the ACTUAL filenames saved by Multer
-    const thumbnailPath = request.files['thumbnail'] ? `productImages/${request.files['thumbnail'][0].filename}` : "";
-    
-    // Map original filenames to new Multer filenames
-    // This solves the mismatch between Flutter and Node.js
-    const fileMapping = {};
-    if (request.files['images']) {
-      request.files['images'].forEach(file => {
-        // file.originalname is "tshirt.jpg"
-        // file.filename is "1736152847-tshirt.jpg"
-        fileMapping[`productImages/${file.originalname}`] = `productImages/${file.filename}`;
-      });
+app.post("/products", (req, res, next) => {
+    // 1. Manually check if the folder exists or Multer will crash the whole app
+    if (!fs.existsSync("productImages")) {
+        fs.mkdirSync("productImages", { recursive: true });
     }
+    next();
+}, uploadProduct.fields([
+    { name: 'thumbnail', maxCount: 1 },
+    { name: 'images', maxCount: 10 }
+]), async (request, response) => {
+    try {
+        // 2. Add a check to see if body actually arrived
+        if (!request.body || Object.keys(request.body).length === 0) {
+            return response.status(400).json({ message: "No data received in request body" });
+        }
 
-    const finalImages = Object.values(fileMapping);
+        const {
+            id, title, stock, sku, price, salePrice, 
+            isFeatured, productType, description, categoryId,
+            brand, productAttributes, productVariations 
+        } = request.body;
 
-    // 2. Fix Variation Images (Server-Side Correction)
-    let parsedVariations = typeof productVariations === 'string' ? JSON.parse(productVariations) : (productVariations || []);
-    
-    parsedVariations = parsedVariations.map(variation => {
-      // If the variation image matches an original path, update it to the ACTUAL server path
-      if (fileMapping[variation.image]) {
-        return { ...variation, image: fileMapping[variation.image] };
-      }
-      return variation;
-    });
+        // 3. Handle Files safely
+        const thumbnailPath = (request.files && request.files['thumbnail']) 
+            ? `productImages/${request.files['thumbnail'][0].filename}` 
+            : "";
+        
+        const fileMapping = {};
+        if (request.files && request.files['images']) {
+            request.files['images'].forEach(file => {
+                fileMapping[`productImages/${file.originalname}`] = `productImages/${file.filename}`;
+            });
+        }
 
-    // 3. Convert to JSON for SQL
-    const brandData = typeof brand === 'string' ? brand : JSON.stringify(brand || {});
-    const imagesData = JSON.stringify(finalImages);
-    const attrData = typeof productAttributes === 'string' ? productAttributes : JSON.stringify(productAttributes || []);
-    const varData = JSON.stringify(parsedVariations); // Use the corrected variations
+        const finalImages = Object.values(fileMapping);
 
-    const sql = `INSERT INTO Products 
-      (id, title, stock, sku, price, salePrice, thumbnail, isFeatured, productType, description, categoryId, brand, images, productAttributes, productVariations) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        // 4. Safe Parsing (Try/Catch inside for JSON)
+        let parsedVariations = [];
+        try {
+            parsedVariations = typeof productVariations === 'string' ? JSON.parse(productVariations) : (productVariations || []);
+        } catch (e) { console.error("Variation Parse Error"); }
 
-    const values = [
-      id || crypto.randomBytes(10).toString("hex"), 
-      title, parseInt(stock) || 0, sku, 
-      parseFloat(price) || 0.0, parseFloat(salePrice) || 0.0, 
-      thumbnailPath, 
-      (isFeatured === "true" || isFeatured === "1" || isFeatured === true) ? 1 : 0, 
-      productType, description, categoryId, 
-      brandData, imagesData, attrData, varData
-    ];
+        // Update variation images
+        parsedVariations = parsedVariations.map(variation => {
+            if (fileMapping[variation.image]) {
+                return { ...variation, image: fileMapping[variation.image] };
+            }
+            return variation;
+        });
 
-    await db.query(sql, values);
-    response.status(201).json({ message: "Product created successfully!", id });
-  } catch (error) {
-    console.error("Error creating product:", error);
-    response.status(500).json({ message: error.message, stack: error.stack});
-  }
+        // 5. Database execution
+        const sql = `INSERT INTO Products 
+          (id, title, stock, sku, price, salePrice, thumbnail, isFeatured, productType, description, categoryId, brand, images, productAttributes, productVariations) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+        const values = [
+            id || crypto.randomBytes(10).toString("hex"), 
+            title || "Untitled", 
+            parseInt(stock) || 0, 
+            sku || "", 
+            parseFloat(price) || 0.0, 
+            parseFloat(salePrice) || 0.0, 
+            thumbnailPath, 
+            (isFeatured === "true" || isFeatured === "1" || isFeatured === true) ? 1 : 0, 
+            productType || "single", 
+            description || "", 
+            categoryId || null, 
+            typeof brand === 'string' ? brand : JSON.stringify(brand || {}), 
+            JSON.stringify(finalImages), 
+            typeof productAttributes === 'string' ? productAttributes : JSON.stringify(productAttributes || []), 
+            JSON.stringify(parsedVariations)
+        ];
+
+        await db.query(sql, values);
+        response.status(201).json({ success: true, message: "Product created!", id });
+
+    } catch (error) {
+        console.error("CRITICAL UPLOAD ERROR:", error);
+        // This is the most important part: send the REAL error to Flutter
+        response.status(500).json({ 
+            message: "Server Error during product upload", 
+            error: error.message,
+            stack: error.stack 
+        });
+    }
 });
 
 app.get("/products", async (request, response) => {
