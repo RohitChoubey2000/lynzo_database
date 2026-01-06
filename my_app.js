@@ -944,7 +944,7 @@ app.post("/products", uploadProduct.fields([
     response.status(201).json({ message: "Product created successfully!", id });
   } catch (error) {
     console.error("Error creating product:", error);
-    response.status(500).json({ message: "Internal server error." });
+    response.status(500).json({ message: error.message, stack: error.stack});
   }
 });
 
