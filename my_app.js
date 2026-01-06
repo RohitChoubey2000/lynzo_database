@@ -962,7 +962,7 @@ app.post("/products", (req, res, next) => {
         // This is the most important part: send the REAL error to Flutter
         response.status(500).json({ 
             message: "Server Error during product upload", 
-            error: error.message,
+            error: error.sqlMessage || error.message,
             stack: error.stack 
         });
     }
