@@ -882,8 +882,8 @@ app.get("/brands", async (request, response) => {
     response.status(500).json({ message: "Internal server error." });
   }
 });
-
 app.post("/products", (req, res, next) => {
+    // Ensure the directory exists before Multer processes files
     if (!fs.existsSync("productImages")) {
         fs.mkdirSync("productImages", { recursive: true });
     }
@@ -903,27 +903,41 @@ app.post("/products", (req, res, next) => {
             brand, productAttributes, productVariations 
         } = request.body;
 
-        // 1. Handle File Paths
+        // --- 1. HANDLE FILE PATHS & MAPPING ---
+        const fileMapping = {};
+
+        // Process Thumbnail
         const thumbnailPath = (request.files && request.files['thumbnail']) 
             ? `productImages/${request.files['thumbnail'][0].filename}` 
             : "";
         
-        const fileMapping = {};
+        if (request.files && request.files['thumbnail']) {
+            const thumbFile = request.files['thumbnail'][0];
+            // Key: 'productImages/original_name.jpg' -> Value: 'productImages/12345-original_name.jpg'
+            fileMapping[`productImages/${thumbFile.originalname}`] = `productImages/${thumbFile.filename}`;
+        }
+
+        // Process Gallery Images
         if (request.files && request.files['images']) {
             request.files['images'].forEach(file => {
                 fileMapping[`productImages/${file.originalname}`] = `productImages/${file.filename}`;
             });
         }
+
+        // Final list of unique server paths for the 'images' column
         const finalImages = Object.values(fileMapping);
 
-        // 2. Safe JSON Parsing Helper
+        // --- 2. SAFE JSON PARSING HELPER ---
         const safeParse = (data) => {
             try {
                 return typeof data === 'string' ? JSON.parse(data) : (data || []);
-            } catch (e) { return []; }
+            } catch (e) { 
+                return []; 
+            }
         };
 
-        // 3. Process Variations with correct server image paths
+        // --- 3. PROCESS VARIATIONS ---
+        // This replaces the local asset paths with the actual server paths stored in fileMapping
         let parsedVariations = safeParse(productVariations);
         parsedVariations = parsedVariations.map(variation => {
             if (variation.image && fileMapping[variation.image]) {
@@ -932,8 +946,7 @@ app.post("/products", (req, res, next) => {
             return variation;
         });
 
-        // 4. Database Execution (Matching your 16-column table structure)
-        // Note: We include 'date' and set it to NOW() since dummy data doesn't send it
+        // --- 4. DATABASE EXECUTION ---
         const sql = `INSERT INTO Products 
           (id, title, stock, sku, price, salePrice, thumbnail, isFeatured, productType, description, categoryId, date, brand, images, productAttributes, productVariations) 
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`;
@@ -946,12 +959,12 @@ app.post("/products", (req, res, next) => {
             parseFloat(price) || 0.0, 
             parseFloat(salePrice) || 0.0, 
             thumbnailPath, 
-            // Convert "true"/true to 1 and "false"/false to 0 for TINYINT(1)
+            // Handle boolean strings from Flutter Multipart
             (isFeatured === "true" || isFeatured === true || isFeatured === 1) ? 1 : 0, 
             productType || "ProductType.single", 
             description || "", 
             categoryId || null, 
-            // Store objects as JSON strings for your TEXT columns
+            // Store as JSON strings for MySQL TEXT/LONGTEXT columns
             typeof brand === 'string' ? brand : JSON.stringify(brand || {}), 
             JSON.stringify(finalImages), 
             typeof productAttributes === 'string' ? productAttributes : JSON.stringify(safeParse(productAttributes)), 
@@ -959,6 +972,8 @@ app.post("/products", (req, res, next) => {
         ];
 
         await db.query(sql, values);
+        
+        console.log(`✅ Product ${id} uploaded and images mapped successfully.`);
         response.status(201).json({ success: true, message: "Product created successfully!", id });
 
     } catch (error) {
