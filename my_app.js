@@ -883,7 +883,6 @@ app.get("/brands", async (request, response) => {
   }
 });
 app.post("/products", (req, res, next) => {
-    // Ensure the directory exists before Multer processes files
     if (!fs.existsSync("productImages")) {
         fs.mkdirSync("productImages", { recursive: true });
     }
@@ -906,29 +905,29 @@ app.post("/products", (req, res, next) => {
         // --- 1. HANDLE FILE PATHS & MAPPING ---
         const fileMapping = {};
 
-        // Process Thumbnail
         const thumbnailPath = (request.files && request.files['thumbnail']) 
             ? `productImages/${request.files['thumbnail'][0].filename}` 
             : "";
         
         if (request.files && request.files['thumbnail']) {
             const thumbFile = request.files['thumbnail'][0];
-            // Key: 'productImages/original_name.jpg' -> Value: 'productImages/12345-original_name.jpg'
             fileMapping[`productImages/${thumbFile.originalname}`] = `productImages/${thumbFile.filename}`;
         }
 
-        // Process Gallery Images
         if (request.files && request.files['images']) {
             request.files['images'].forEach(file => {
                 fileMapping[`productImages/${file.originalname}`] = `productImages/${file.filename}`;
             });
         }
 
-        // Final list of unique server paths for the 'images' column
         const finalImages = Object.values(fileMapping);
 
-        // --- 2. SAFE JSON PARSING HELPER ---
+        // --- 2. UPDATED SAFE JSON PARSING (Fixes the 500 error) ---
         const safeParse = (data) => {
+            // Check for empty, null, or stringified "null"
+            if (!data || data === "null" || data === "undefined" || data === "") {
+                return [];
+            }
             try {
                 return typeof data === 'string' ? JSON.parse(data) : (data || []);
             } catch (e) { 
@@ -936,15 +935,19 @@ app.post("/products", (req, res, next) => {
             }
         };
 
-        // --- 3. PROCESS VARIATIONS ---
-        // This replaces the local asset paths with the actual server paths stored in fileMapping
-        let parsedVariations = safeParse(productVariations);
-        parsedVariations = parsedVariations.map(variation => {
-            if (variation.image && fileMapping[variation.image]) {
-                return { ...variation, image: fileMapping[variation.image] };
-            }
-            return variation;
-        });
+        // --- 3. PROCESS VARIATIONS (Fixes the .map() on null error) ---
+        let rawVariations = safeParse(productVariations);
+        let parsedVariations = [];
+
+        // Only try to map if rawVariations is actually an array
+        if (Array.isArray(rawVariations)) {
+            parsedVariations = rawVariations.map(variation => {
+                if (variation && variation.image && fileMapping[variation.image]) {
+                    return { ...variation, image: fileMapping[variation.image] };
+                }
+                return variation;
+            });
+        }
 
         // --- 4. DATABASE EXECUTION ---
         const sql = `INSERT INTO Products 
@@ -959,21 +962,20 @@ app.post("/products", (req, res, next) => {
             parseFloat(price) || 0.0, 
             parseFloat(salePrice) || 0.0, 
             thumbnailPath, 
-            // Handle boolean strings from Flutter Multipart
             (isFeatured === "true" || isFeatured === true || isFeatured === 1) ? 1 : 0, 
             productType || "ProductType.single", 
             description || "", 
             categoryId || null, 
-            // Store as JSON strings for MySQL TEXT/LONGTEXT columns
             typeof brand === 'string' ? brand : JSON.stringify(brand || {}), 
             JSON.stringify(finalImages), 
+            // Ensure we send a stringified array even if empty
             typeof productAttributes === 'string' ? productAttributes : JSON.stringify(safeParse(productAttributes)), 
             JSON.stringify(parsedVariations)
         ];
 
         await db.query(sql, values);
         
-        console.log(`✅ Product ${id} uploaded and images mapped successfully.`);
+        console.log(`✅ Product ${id} uploaded successfully.`);
         response.status(201).json({ success: true, message: "Product created successfully!", id });
 
     } catch (error) {
