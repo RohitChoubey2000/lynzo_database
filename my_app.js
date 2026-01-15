@@ -882,7 +882,10 @@ app.get("/brands", async (request, response) => {
     response.status(500).json({ message: "Internal server error." });
   }
 });
+
+
 app.post("/products", (req, res, next) => {
+    // Ensure the directory exists before Multer processes files
     if (!fs.existsSync("productImages")) {
         fs.mkdirSync("productImages", { recursive: true });
     }
@@ -905,9 +908,10 @@ app.post("/products", (req, res, next) => {
         // --- 1. HANDLE FILE PATHS & MAPPING ---
         const fileMapping = {};
 
+        // Updated: Defaults to null to match your new table structure
         const thumbnailPath = (request.files && request.files['thumbnail']) 
             ? `productImages/${request.files['thumbnail'][0].filename}` 
-            : "";
+            : null; 
         
         if (request.files && request.files['thumbnail']) {
             const thumbFile = request.files['thumbnail'][0];
@@ -922,9 +926,8 @@ app.post("/products", (req, res, next) => {
 
         const finalImages = Object.values(fileMapping);
 
-        // --- 2. UPDATED SAFE JSON PARSING (Fixes the 500 error) ---
+        // --- 2. SAFE JSON PARSING HELPER ---
         const safeParse = (data) => {
-            // Check for empty, null, or stringified "null"
             if (!data || data === "null" || data === "undefined" || data === "") {
                 return [];
             }
@@ -935,11 +938,10 @@ app.post("/products", (req, res, next) => {
             }
         };
 
-        // --- 3. PROCESS VARIATIONS (Fixes the .map() on null error) ---
+        // --- 3. PROCESS VARIATIONS ---
         let rawVariations = safeParse(productVariations);
         let parsedVariations = [];
 
-        // Only try to map if rawVariations is actually an array
         if (Array.isArray(rawVariations)) {
             parsedVariations = rawVariations.map(variation => {
                 if (variation && variation.image && fileMapping[variation.image]) {
@@ -958,17 +960,16 @@ app.post("/products", (req, res, next) => {
             id || crypto.randomBytes(10).toString("hex"), 
             title || "Untitled", 
             parseInt(stock) || 0, 
-            sku || "", 
+            sku || null, // Changed to null for consistency
             parseFloat(price) || 0.0, 
             parseFloat(salePrice) || 0.0, 
             thumbnailPath, 
             (isFeatured === "true" || isFeatured === true || isFeatured === 1) ? 1 : 0, 
             productType || "ProductType.single", 
-            description || "", 
+            description || null, 
             categoryId || null, 
             typeof brand === 'string' ? brand : JSON.stringify(brand || {}), 
             JSON.stringify(finalImages), 
-            // Ensure we send a stringified array even if empty
             typeof productAttributes === 'string' ? productAttributes : JSON.stringify(safeParse(productAttributes)), 
             JSON.stringify(parsedVariations)
         ];
@@ -980,6 +981,16 @@ app.post("/products", (req, res, next) => {
 
     } catch (error) {
         console.error("DATABASE ERROR:", error.sqlMessage || error.message);
+        
+        // --- 5. CLEANUP ON ERROR ---
+        // If DB fails, we should delete the files Multer just saved to keep the server clean
+        if (request.files) {
+            const allFiles = [...(request.files['thumbnail'] || []), ...(request.files['images'] || [])];
+            allFiles.forEach(file => {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+            });
+        }
+
         response.status(500).json({ 
             message: "Database Error", 
             error: error.sqlMessage || error.message 
