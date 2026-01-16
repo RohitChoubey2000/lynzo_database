@@ -883,9 +883,7 @@ app.get("/brands", async (request, response) => {
   }
 });
 
-
 app.post("/products", (req, res, next) => {
-    // Ensure the directory exists before Multer processes files
     if (!fs.existsSync("productImages")) {
         fs.mkdirSync("productImages", { recursive: true });
     }
@@ -907,8 +905,6 @@ app.post("/products", (req, res, next) => {
 
         // --- 1. HANDLE FILE PATHS & MAPPING ---
         const fileMapping = {};
-
-        // Updated: Defaults to null to match your new table structure
         const thumbnailPath = (request.files && request.files['thumbnail']) 
             ? `productImages/${request.files['thumbnail'][0].filename}` 
             : null; 
@@ -926,23 +922,25 @@ app.post("/products", (req, res, next) => {
 
         const finalImages = Object.values(fileMapping);
 
-        // --- 2. SAFE JSON PARSING HELPER ---
+        // --- 2. HARDENED SAFE JSON PARSING ---
         const safeParse = (data) => {
-            if (!data || data === "null" || data === "undefined" || data === "") {
+            // Explicitly catch the string "null" or "undefined" sent by Flutter
+            if (!data || data === "null" || data === "undefined" || data === "" || data === "[]") {
                 return [];
             }
             try {
                 return typeof data === 'string' ? JSON.parse(data) : (data || []);
             } catch (e) { 
+                console.error("JSON Parse Warning:", e.message);
                 return []; 
             }
         };
 
-        // --- 3. PROCESS VARIATIONS ---
-        let rawVariations = safeParse(productVariations);
+        // --- 3. PROCESS VARIATIONS (Bulletproofed) ---
         let parsedVariations = [];
+        const rawVariations = safeParse(productVariations);
 
-        if (Array.isArray(rawVariations)) {
+        if (Array.isArray(rawVariations) && rawVariations.length > 0) {
             parsedVariations = rawVariations.map(variation => {
                 if (variation && variation.image && fileMapping[variation.image]) {
                     return { ...variation, image: fileMapping[variation.image] };
@@ -960,7 +958,7 @@ app.post("/products", (req, res, next) => {
             id || crypto.randomBytes(10).toString("hex"), 
             title || "Untitled", 
             parseInt(stock) || 0, 
-            sku || null, // Changed to null for consistency
+            sku || null, 
             parseFloat(price) || 0.0, 
             parseFloat(salePrice) || 0.0, 
             thumbnailPath, 
@@ -968,9 +966,10 @@ app.post("/products", (req, res, next) => {
             productType || "ProductType.single", 
             description || null, 
             categoryId || null, 
-            typeof brand === 'string' ? brand : JSON.stringify(brand || {}), 
+            // Handle brand specifically (could be a string "null" or an object)
+            (brand === "null" || !brand) ? JSON.stringify({}) : (typeof brand === 'string' ? brand : JSON.stringify(brand)),
             JSON.stringify(finalImages), 
-            typeof productAttributes === 'string' ? productAttributes : JSON.stringify(safeParse(productAttributes)), 
+            JSON.stringify(safeParse(productAttributes)), 
             JSON.stringify(parsedVariations)
         ];
 
@@ -983,7 +982,6 @@ app.post("/products", (req, res, next) => {
         console.error("DATABASE ERROR:", error.sqlMessage || error.message);
         
         // --- 5. CLEANUP ON ERROR ---
-        // If DB fails, we should delete the files Multer just saved to keep the server clean
         if (request.files) {
             const allFiles = [...(request.files['thumbnail'] || []), ...(request.files['images'] || [])];
             allFiles.forEach(file => {
