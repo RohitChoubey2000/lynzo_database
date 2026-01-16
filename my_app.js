@@ -88,19 +88,40 @@ const uploadBrand = multer({ storage: brandStorage });
 app.use("/brandImages", express.static(brandUploadPath));
 
 // Configuration for Product Thumbnails
+// Configuration for Product Thumbnails
 const productUploadPath = path.join(__dirname, "productImages");
+
+// Ensure directory exists at startup
+if (!fs.existsSync(productUploadPath)) {
+    fs.mkdirSync(productUploadPath, { recursive: true });
+}
+
 const productStorage = multer.diskStorage({
-  destination: (request, file, cb) => {
-    if (!fs.existsSync(productUploadPath)) {
-      fs.mkdirSync(productUploadPath, { recursive: true });
-    }
-    cb(null, productUploadPath);
-  },
-  filename: (request, file, cb) => {
-   cb(null, Date.now() + "-" + file.originalname);
-  },
+    destination: (request, file, cb) => {
+        cb(null, productUploadPath);
+    },
+    filename: (request, file, cb) => {
+        // Remove special characters and spaces from original name to prevent URL issues
+        const safeName = file.originalname.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+        cb(null, Date.now() + "-" + safeName);
+    },
 });
-const uploadProduct = multer({ storage: productStorage });
+
+const uploadProduct = multer({ 
+    storage: productStorage,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // Limit: 5MB per image
+    },
+    fileFilter: (req, file, cb) => {
+        // Accept images only
+        if (!file.mimetype.startsWith('image/')) {
+            return cb(new Error('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+    }
+});
+
+// Serve the images statically so Flutter can access them
 app.use("/productImages", express.static(productUploadPath));
 
 // --- CRITICAL AUTHENTICATION MIDDLEWARE ---
