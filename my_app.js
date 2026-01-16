@@ -883,6 +883,8 @@ app.get("/brands", async (request, response) => {
   }
 });
 
+
+
 app.post("/products", (req, res, next) => {
     if (!fs.existsSync("productImages")) {
         fs.mkdirSync("productImages", { recursive: true });
@@ -897,13 +899,25 @@ app.post("/products", (req, res, next) => {
             return response.status(400).json({ message: "No data received" });
         }
 
+        // --- 1. PRE-VALIDATE JSON FIELDS ---
+        // We do this before destructuring to prevent 'null' from ever reaching a .map()
+        const safeParse = (data) => {
+            if (!data || data === "null" || data === "undefined" || data === "" || data === "[]") return [];
+            try {
+                return typeof data === 'string' ? JSON.parse(data) : data;
+            } catch (e) { return []; }
+        };
+
+        const rawAttributes = safeParse(request.body.productAttributes);
+        const rawVariations = safeParse(request.body.productVariations);
+
         const {
             id, title, stock, sku, price, salePrice, 
             isFeatured, productType, description, categoryId,
-            brand, productAttributes, productVariations 
+            brand 
         } = request.body;
 
-        // --- 1. HANDLE FILE PATHS & MAPPING ---
+        // --- 2. HANDLE FILE PATHS & MAPPING ---
         const fileMapping = {};
         const thumbnailPath = (request.files && request.files['thumbnail']) 
             ? `productImages/${request.files['thumbnail'][0].filename}` 
@@ -922,25 +936,10 @@ app.post("/products", (req, res, next) => {
 
         const finalImages = Object.values(fileMapping);
 
-        // --- 2. HARDENED SAFE JSON PARSING ---
-        const safeParse = (data) => {
-            // Explicitly catch the string "null" or "undefined" sent by Flutter
-            if (!data || data === "null" || data === "undefined" || data === "" || data === "[]") {
-                return [];
-            }
-            try {
-                return typeof data === 'string' ? JSON.parse(data) : (data || []);
-            } catch (e) { 
-                console.error("JSON Parse Warning:", e.message);
-                return []; 
-            }
-        };
-
-        // --- 3. PROCESS VARIATIONS (Bulletproofed) ---
+        // --- 3. PROCESS VARIATIONS ---
+        // Guaranteed to work because rawVariations is already validated as an Array above
         let parsedVariations = [];
-        const rawVariations = safeParse(productVariations);
-
-        if (Array.isArray(rawVariations) && rawVariations.length > 0) {
+        if (Array.isArray(rawVariations)) {
             parsedVariations = rawVariations.map(variation => {
                 if (variation && variation.image && fileMapping[variation.image]) {
                     return { ...variation, image: fileMapping[variation.image] };
@@ -966,10 +965,9 @@ app.post("/products", (req, res, next) => {
             productType || "ProductType.single", 
             description || null, 
             categoryId || null, 
-            // Handle brand specifically (could be a string "null" or an object)
             (brand === "null" || !brand) ? JSON.stringify({}) : (typeof brand === 'string' ? brand : JSON.stringify(brand)),
             JSON.stringify(finalImages), 
-            JSON.stringify(safeParse(productAttributes)), 
+            JSON.stringify(rawAttributes), 
             JSON.stringify(parsedVariations)
         ];
 
@@ -981,7 +979,6 @@ app.post("/products", (req, res, next) => {
     } catch (error) {
         console.error("DATABASE ERROR:", error.sqlMessage || error.message);
         
-        // --- 5. CLEANUP ON ERROR ---
         if (request.files) {
             const allFiles = [...(request.files['thumbnail'] || []), ...(request.files['images'] || [])];
             allFiles.forEach(file => {
@@ -995,6 +992,7 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
+
 
 app.get("/products", async (request, response) => {
   try {
