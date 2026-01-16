@@ -894,18 +894,25 @@ app.post("/products", (req, res, next) => {
     { name: 'thumbnail', maxCount: 1 },
     { name: 'images', maxCount: 10 }
 ]), async (request, response) => {
+    // --- DEBUG: SEE EXACTLY WHAT FLUTTER SENDS ---
+    console.log("--- NEW UPLOAD ATTEMPT ---");
+    console.log("Body Keys:", Object.keys(request.body));
+
     try {
         if (!request.body || Object.keys(request.body).length === 0) {
             return response.status(400).json({ message: "No data received" });
         }
 
         // --- 1. PRE-VALIDATE JSON FIELDS ---
-        // We do this before destructuring to prevent 'null' from ever reaching a .map()
         const safeParse = (data) => {
             if (!data || data === "null" || data === "undefined" || data === "" || data === "[]") return [];
             try {
-                return typeof data === 'string' ? JSON.parse(data) : data;
-            } catch (e) { return []; }
+                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) { 
+                console.error("JSON Parse Error on field:", e.message);
+                return []; 
+            }
         };
 
         const rawAttributes = safeParse(request.body.productAttributes);
@@ -919,16 +926,16 @@ app.post("/products", (req, res, next) => {
 
         // --- 2. HANDLE FILE PATHS & MAPPING ---
         const fileMapping = {};
-        const thumbnailPath = (request.files && request.files['thumbnail']) 
+        const thumbnailPath = (request.files?.['thumbnail']) 
             ? `productImages/${request.files['thumbnail'][0].filename}` 
             : null; 
         
-        if (request.files && request.files['thumbnail']) {
+        if (request.files?.['thumbnail']) {
             const thumbFile = request.files['thumbnail'][0];
             fileMapping[`productImages/${thumbFile.originalname}`] = `productImages/${thumbFile.filename}`;
         }
 
-        if (request.files && request.files['images']) {
+        if (request.files?.['images']) {
             request.files['images'].forEach(file => {
                 fileMapping[`productImages/${file.originalname}`] = `productImages/${file.filename}`;
             });
@@ -936,15 +943,17 @@ app.post("/products", (req, res, next) => {
 
         const finalImages = Object.values(fileMapping);
 
-        // --- 3. PROCESS VARIATIONS ---
-        // Guaranteed to work because rawVariations is already validated as an Array above
+        // --- 3. PROCESS VARIATIONS (NUCLEAR SAFETY) ---
         let parsedVariations = [];
-        if (Array.isArray(rawVariations)) {
+        
+        // Use optional chaining and a fallback array to prevent crashes
+        if (rawVariations && Array.isArray(rawVariations)) {
             parsedVariations = rawVariations.map(variation => {
-                if (variation && variation.image && fileMapping[variation.image]) {
+                // Check variation exists and has an image property safely
+                if (variation?.image && fileMapping[variation.image]) {
                     return { ...variation, image: fileMapping[variation.image] };
                 }
-                return variation;
+                return variation || {}; // Return empty object if variation is null
             });
         }
 
@@ -977,21 +986,23 @@ app.post("/products", (req, res, next) => {
         response.status(201).json({ success: true, message: "Product created successfully!", id });
 
     } catch (error) {
-        console.error("DATABASE ERROR:", error.sqlMessage || error.message);
+        // Detailed logging for debugging
+        console.error("CRITICAL ERROR:", error);
         
         if (request.files) {
             const allFiles = [...(request.files['thumbnail'] || []), ...(request.files['images'] || [])];
             allFiles.forEach(file => {
-                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+                if (fs.existsSync(file?.path)) fs.unlinkSync(file.path);
             });
         }
 
         response.status(500).json({ 
             message: "Database Error", 
-            error: error.sqlMessage || error.message 
+            error: error.message 
         });
     }
 });
+
 
 
 app.get("/products", async (request, response) => {
