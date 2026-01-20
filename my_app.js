@@ -1028,15 +1028,13 @@ app.post("/products", (req, res, next) => {
 
 app.get("/products", async (request, response) => {
   try {
-    // 1. GET Query Parameters from the URL
     const { isFeatured, limit } = request.query;
 
-    // 2. BUILD THE SQL QUERY DYNAMICALLY
     let sql = "SELECT * FROM Products";
     let params = [];
 
     if (isFeatured === 'true') {
-      sql += " WHERE isFeatured = 1"; // MySQL uses 1 for true
+      sql += " WHERE isFeatured = 1";
     }
 
     if (limit) {
@@ -1045,44 +1043,53 @@ app.get("/products", async (request, response) => {
     }
 
     const [rows] = await db.query(sql, params);
-    const host = `${request.protocol}://${request.get('host')}`;
+    
+    // Use request.get('host') to get the domain (e.g., lynzo.edugaondev.com)
+    const protocol = request.protocol;
+    const host = request.get('host');
+    const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
+      // 1. Parse JSON fields safely
       const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
       const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
-      
-      // Parse variations to fix their internal image URLs too
-      let variations = typeof product.productVariations === 'string' 
-          ? JSON.parse(product.productVariations) 
-          : product.productVariations;
+      let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
 
+      // 2. Helper function to ensure URL has proper slashes
+      const formatUrl = (path) => {
+        if (!path) return "";
+        if (path.startsWith('http')) return path;
+        // Ensure there is exactly one slash between baseUrl and path
+        return `${baseUrl}/${path.replace(/^\//, '')}`;
+      };
+
+      // 3. Update Variations URLs
       if (Array.isArray(variations)) {
         variations = variations.map(v => ({
           ...v,
-          image: v.image ? (v.image.startsWith('http') ? v.image : `${host}/${v.image}`) : ""
+          image: formatUrl(v.image)
         }));
       }
 
+      // 4. Return formatted product
       return {
         ...product,
         brand: brandObj ? {
           ...brandObj,
-          image: brandObj.image ? (brandObj.image.startsWith('http') ? brandObj.image : `${host}/${brandObj.image}`) : ""
+          image: formatUrl(brandObj.image)
         } : null,
-        images: Array.isArray(imagesList) ? imagesList.map(img => img.startsWith('http') ? img : `${host}/${img}`) : [],
-        thumbnail: product.thumbnail ? (product.thumbnail.startsWith('http') ? product.thumbnail : `${host}/${product.thumbnail}`) : null,
+        images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
+        thumbnail: formatUrl(product.thumbnail),
         productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
         productVariations: variations,
-        // Ensure boolean return for Flutter
         isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
       };
     });
 
-    // --- ADD THIS LOG TO SEE THE DATA ---
+    // DEBUG LOG
     if (products.length > 0) {
-      console.log("--- SENDING PRODUCT TO FLUTTER ---");
-      console.log("Brand Image URL:", products[0].brand ? products[0].brand.image : "No Brand");
-      console.log("----------------------------------");
+      console.log("--- DEBUG URL CHECK ---");
+      console.log("Full Brand URL being sent:", products[0].brand ? products[0].brand.image : "N/A");
     }
 
     response.status(200).json(products);
