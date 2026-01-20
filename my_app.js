@@ -15,6 +15,7 @@ const fs = require("fs");
 const PORT = process.env.PORT
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use('/brandImages', express.static('brandImages'));
 
 
 
@@ -90,12 +91,10 @@ app.use("/brandImages", express.static(brandUploadPath));
 // Configuration for Product Thumbnails
 // Configuration for Product Thumbnails
 const productUploadPath = path.join(__dirname, "productImages");
-
 // Ensure directory exists at startup
 if (!fs.existsSync(productUploadPath)) {
     fs.mkdirSync(productUploadPath, { recursive: true });
 }
-
 const productStorage = multer.diskStorage({
     destination: (request, file, cb) => {
         cb(null, productUploadPath);
