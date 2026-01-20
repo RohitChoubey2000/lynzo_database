@@ -1078,6 +1078,13 @@ app.get("/products", async (request, response) => {
       };
     });
 
+    // --- ADD THIS LOG TO SEE THE DATA ---
+    if (products.length > 0) {
+      console.log("--- SENDING PRODUCT TO FLUTTER ---");
+      console.log("Brand Image URL:", products[0].brand ? products[0].brand.image : "No Brand");
+      console.log("----------------------------------");
+    }
+
     response.status(200).json(products);
   } catch (error) {
     console.error("Error fetching products:", error);
