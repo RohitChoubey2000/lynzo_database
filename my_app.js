@@ -1025,7 +1025,6 @@ app.post("/products", (req, res, next) => {
 });
 
 
-
 app.get("/products", async (request, response) => {
   try {
     const { isFeatured, limit } = request.query;
