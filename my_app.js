@@ -1027,18 +1027,17 @@ app.post("/products", (req, res, next) => {
 
 app.get("/products", async (request, response) => {
   try {
-    // 1. ADD brandId to the destructuring here
+    // 1. Extract query parameters
     const { isFeatured, limit, brandId } = request.query;
 
     let sql = "SELECT * FROM Products";
     let params = [];
-    let conditions = []; // Helper to manage multiple WHERE conditions
+    let conditions = [];
 
-    // 2. Add Brand Filter Logic
+    // 2. Add Brand Filter Logic 
+    // We use 'categoryId' here because your Flutter Upload logic stores the Brand ID in that column.
     if (brandId) {
-      // NOTE: Ensure 'categoryId' is the correct column name in your DB for the brand link
-      // If your column is named 'brandId', change categoryId to brandId below.
-      conditions.push("categoryId = ?"); 
+      conditions.push("categoryId = ?");
       params.push(brandId);
     }
 
@@ -1047,12 +1046,12 @@ app.get("/products", async (request, response) => {
       conditions.push("isFeatured = 1");
     }
 
-    // 4. Combine conditions into the SQL string
+    // 4. Combine conditions
     if (conditions.length > 0) {
       sql += " WHERE " + conditions.join(" AND ");
     }
 
-    // 5. Add Limit (This remains at the end of the query)
+    // 5. Add Limit
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
@@ -1060,12 +1059,13 @@ app.get("/products", async (request, response) => {
 
     const [rows] = await db.query(sql, params);
     
-    // --- KEEPING ALL YOUR ORIGINAL URL FORMATTING LOGIC BELOW ---
+    // --- START OF YOUR ORIGINAL URL FORMATTING LOGIC ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
+      // Safely parse JSON fields stored in MySQL text columns
       const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
       const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
       let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
@@ -1103,6 +1103,7 @@ app.get("/products", async (request, response) => {
     response.status(500).json({ message: "Internal server error." });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
