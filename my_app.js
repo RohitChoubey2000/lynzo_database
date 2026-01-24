@@ -1027,15 +1027,32 @@ app.post("/products", (req, res, next) => {
 
 app.get("/products", async (request, response) => {
   try {
-    const { isFeatured, limit } = request.query;
+    // 1. ADD brandId to the destructuring here
+    const { isFeatured, limit, brandId } = request.query;
 
     let sql = "SELECT * FROM Products";
     let params = [];
+    let conditions = []; // Helper to manage multiple WHERE conditions
 
-    if (isFeatured === 'true') {
-      sql += " WHERE isFeatured = 1";
+    // 2. Add Brand Filter Logic
+    if (brandId) {
+      // NOTE: Ensure 'categoryId' is the correct column name in your DB for the brand link
+      // If your column is named 'brandId', change categoryId to brandId below.
+      conditions.push("categoryId = ?"); 
+      params.push(brandId);
     }
 
+    // 3. Add Featured Filter Logic
+    if (isFeatured === 'true') {
+      conditions.push("isFeatured = 1");
+    }
+
+    // 4. Combine conditions into the SQL string
+    if (conditions.length > 0) {
+      sql += " WHERE " + conditions.join(" AND ");
+    }
+
+    // 5. Add Limit (This remains at the end of the query)
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
@@ -1043,26 +1060,22 @@ app.get("/products", async (request, response) => {
 
     const [rows] = await db.query(sql, params);
     
-    // Use request.get('host') to get the domain (e.g., lynzo.edugaondev.com)
+    // --- KEEPING ALL YOUR ORIGINAL URL FORMATTING LOGIC BELOW ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
-      // 1. Parse JSON fields safely
       const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
       const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
       let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
 
-      // 2. Helper function to ensure URL has proper slashes
       const formatUrl = (path) => {
         if (!path) return "";
         if (path.startsWith('http')) return path;
-        // Ensure there is exactly one slash between baseUrl and path
         return `${baseUrl}/${path.replace(/^\//, '')}`;
       };
 
-      // 3. Update Variations URLs
       if (Array.isArray(variations)) {
         variations = variations.map(v => ({
           ...v,
@@ -1070,7 +1083,6 @@ app.get("/products", async (request, response) => {
         }));
       }
 
-      // 4. Return formatted product
       return {
         ...product,
         brand: brandObj ? {
@@ -1085,19 +1097,12 @@ app.get("/products", async (request, response) => {
       };
     });
 
-    // DEBUG LOG
-    if (products.length > 0) {
-      console.log("--- DEBUG URL CHECK ---");
-      console.log("Full Brand URL being sent:", products[0].brand ? products[0].brand.image : "N/A");
-    }
-
     response.status(200).json(products);
   } catch (error) {
     console.error("Error fetching products:", error);
     response.status(500).json({ message: "Internal server error." });
   }
 });
-
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
