@@ -1030,19 +1030,26 @@ app.get("/products", async (request, response) => {
     // 1. Extract query parameters
     const { isFeatured, limit, brandId } = request.query;
 
+    // --- DEBUGGING LOGS (Check your Node.js terminal) ---
+    console.log("-----------------------------------");
+    console.log("Incoming Request Query:", request.query);
+    if (brandId) console.log("Filtering by Brand ID:", brandId);
+    // ----------------------------------------------------
+
     let sql = "SELECT * FROM Products";
     let params = [];
     let conditions = [];
 
     // 2. Add Brand Filter Logic 
-    // We use 'categoryId' here because your Flutter Upload logic stores the Brand ID in that column.
-    if (brandId) {
+    if (brandId && brandId !== 'null' && brandId !== '') {
+      // NOTE: We use 'categoryId' because your uploadProducts logic 
+      // in Flutter saves the Brand's Hex ID into the 'categoryId' column.
       conditions.push("categoryId = ?");
       params.push(brandId);
     }
 
     // 3. Add Featured Filter Logic
-    if (isFeatured === 'true') {
+    if (isFeatured === 'true' || isFeatured === '1') {
       conditions.push("isFeatured = 1");
     }
 
@@ -1057,9 +1064,12 @@ app.get("/products", async (request, response) => {
       params.push(parseInt(limit));
     }
 
+    console.log("Executing SQL:", sql);
+    console.log("With Parameters:", params);
+
     const [rows] = await db.query(sql, params);
     
-    // --- START OF YOUR ORIGINAL URL FORMATTING LOGIC ---
+    // --- URL FORMATTING LOGIC ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
@@ -1085,10 +1095,7 @@ app.get("/products", async (request, response) => {
 
       return {
         ...product,
-        brand: brandObj ? {
-          ...brandObj,
-          image: formatUrl(brandObj.image)
-        } : null,
+        brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
         images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
         thumbnail: formatUrl(product.thumbnail),
         productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
