@@ -1023,59 +1023,41 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
-
-
 app.get("/products", async (request, response) => {
   try {
-    // 1. Extract query parameters
     const { isFeatured, limit, brandId } = request.query;
-
-    // --- DEBUGGING LOGS (Check your Node.js terminal) ---
-    console.log("-----------------------------------");
-    console.log("Incoming Request Query:", request.query);
-    if (brandId) console.log("Filtering by Brand ID:", brandId);
-    // ----------------------------------------------------
-
     let sql = "SELECT * FROM Products";
     let params = [];
     let conditions = [];
 
-    // 2. Add Brand Filter Logic 
+    // FIX: Search for the hex ID inside the JSON 'brand' column
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // NOTE: We use 'categoryId' because your uploadProducts logic 
-      // in Flutter saves the Brand's Hex ID into the 'categoryId' column.
-      conditions.push("categoryId = ?");
+      // JSON_EXTRACT reaches into the JSON string to find the "id" field
+      conditions.push("JSON_EXTRACT(brand, '$.id') = ?");
       params.push(brandId);
     }
 
-    // 3. Add Featured Filter Logic
     if (isFeatured === 'true' || isFeatured === '1') {
       conditions.push("isFeatured = 1");
     }
 
-    // 4. Combine conditions
     if (conditions.length > 0) {
       sql += " WHERE " + conditions.join(" AND ");
     }
 
-    // 5. Add Limit
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
     }
 
-    console.log("Executing SQL:", sql);
-    console.log("With Parameters:", params);
-
     const [rows] = await db.query(sql, params);
     
-    // --- URL FORMATTING LOGIC ---
+    // --- KEEP YOUR EXISTING URL FORMATTING LOGIC BELOW ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
-      // Safely parse JSON fields stored in MySQL text columns
       const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
       const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
       let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
@@ -1086,20 +1068,13 @@ app.get("/products", async (request, response) => {
         return `${baseUrl}/${path.replace(/^\//, '')}`;
       };
 
-      if (Array.isArray(variations)) {
-        variations = variations.map(v => ({
-          ...v,
-          image: formatUrl(v.image)
-        }));
-      }
-
       return {
         ...product,
         brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
         images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
         thumbnail: formatUrl(product.thumbnail),
         productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
-        productVariations: variations,
+        productVariations: typeof variations === 'string' ? JSON.parse(variations) : variations,
         isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
       };
     });
