@@ -1023,16 +1023,24 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
+
 app.get("/products", async (request, response) => {
   try {
     const { isFeatured, limit, brandId } = request.query;
+
+    // --- START DEBUG LOGS ---
+    console.log("========================================");
+    console.log("📥 NEW REQUEST RECEIVED");
+    console.log("🔍 Query Params:", request.query);
+    console.log("🆔 Brand ID from Flutter:", brandId);
+    // -------------------------
+
     let sql = "SELECT * FROM Products";
     let params = [];
     let conditions = [];
 
-    // FIX: Search for the hex ID inside the JSON 'brand' column
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // JSON_EXTRACT reaches into the JSON string to find the "id" field
+      // JSON_EXTRACT matches the Hex ID inside your brand JSON column
       conditions.push("JSON_EXTRACT(brand, '$.id') = ?");
       params.push(brandId);
     }
@@ -1050,38 +1058,53 @@ app.get("/products", async (request, response) => {
       params.push(parseInt(limit));
     }
 
+    // --- LOG THE GENERATED SQL ---
+    console.log("🚀 Executing SQL:", sql);
+    console.log("🔢 With Parameters:", params);
+    // -----------------------------
+
     const [rows] = await db.query(sql, params);
     
-    // --- KEEP YOUR EXISTING URL FORMATTING LOGIC BELOW ---
+    // --- LOG THE RESULT COUNT ---
+    console.log(`✅ Database returned ${rows.length} products.`);
+    console.log("========================================");
+    // -----------------------------
+
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
-      const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
-      const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
-      let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
+      // Try/Catch here prevents one bad JSON row from crashing the whole list
+      try {
+        const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
+        const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
+        let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
 
-      const formatUrl = (path) => {
-        if (!path) return "";
-        if (path.startsWith('http')) return path;
-        return `${baseUrl}/${path.replace(/^\//, '')}`;
-      };
+        const formatUrl = (path) => {
+          if (!path) return "";
+          if (path.startsWith('http')) return path;
+          return `${baseUrl}/${path.replace(/^\//, '')}`;
+        };
 
-      return {
-        ...product,
-        brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
-        images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
-        thumbnail: formatUrl(product.thumbnail),
-        productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
-        productVariations: typeof variations === 'string' ? JSON.parse(variations) : variations,
-        isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
-      };
+        return {
+          ...product,
+          brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
+          images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
+          thumbnail: formatUrl(product.thumbnail),
+          productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
+          productVariations: typeof variations === 'string' ? JSON.parse(variations) : variations,
+          isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
+        };
+      } catch (e) {
+        console.error("⚠️ Error parsing product row:", product.id, e.message);
+        return product; 
+      }
     });
 
     response.status(200).json(products);
   } catch (error) {
-    console.error("Error fetching products:", error);
+    console.error("🔥 CRITICAL SERVER ERROR:", error);
     response.status(500).json({ message: "Internal server error." });
   }
 });
