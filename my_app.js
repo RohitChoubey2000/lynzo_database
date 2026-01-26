@@ -1038,9 +1038,9 @@ app.get("/products", async (request, response) => {
     let params = [];
     let conditions = [];
 
-    // UPDATED FILTER: Using JSON_UNQUOTE to ensure string matching works with MySQL JSON columns
+    // FIX: Using JSON_UNQUOTE ensures the Hex ID inside the JSON matches the plain string from Flutter
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // JSON_EXTRACT reaches into the JSON string, JSON_UNQUOTE removes the double quotes
+      // We look inside the JSON 'brand' column for the 'id' field
       conditions.push("JSON_UNQUOTE(JSON_EXTRACT(brand, '$.id')) = ?");
       params.push(brandId);
     }
@@ -1053,7 +1053,6 @@ app.get("/products", async (request, response) => {
       sql += " WHERE " + conditions.join(" AND ");
     }
 
-    // Handle Limit
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
@@ -1077,7 +1076,7 @@ app.get("/products", async (request, response) => {
 
     const products = rows.map(product => {
       try {
-        // Safely parse JSON strings from the database columns
+        // Parse JSON fields from database text columns
         const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
         const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
         let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
@@ -1098,7 +1097,7 @@ app.get("/products", async (request, response) => {
           isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
         };
       } catch (e) {
-        console.error("⚠️ Error parsing product row ID " + product.id + ":", e.message);
+        console.error("⚠️ Error parsing row ID " + product.id + ":", e.message);
         return product; 
       }
     });
