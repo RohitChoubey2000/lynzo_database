@@ -1023,60 +1023,51 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
+
+
 app.get("/products", async (request, response) => {
   try {
     const { isFeatured, limit, brandId } = request.query;
 
-    // --- START DEBUG LOGS ---
     console.log("========================================");
-    console.log("📥 NEW REQUEST RECEIVED");
-    console.log("🔍 Query Params:", request.query);
-    console.log("🆔 Brand ID from Flutter:", brandId);
-    // -------------------------
+    console.log("🆔 Filtering for Brand ID:", brandId);
 
-    let sql = "SELECT * FROM Products";
+    let sql = "SELECT * FROM Products WHERE 1=1"; // 'WHERE 1=1' makes appending AND logic easier
     let params = [];
-    let conditions = [];
 
-    // FIX: Using JSON_UNQUOTE ensures the Hex ID inside the JSON matches the plain string from Flutter
+    // 1. Apply Brand Filter
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // We look inside the JSON 'brand' column for the 'id' field
-      conditions.push("JSON_UNQUOTE(JSON_EXTRACT(brand, '$.id')) = ?");
+      // We use JSON_UNQUOTE + JSON_EXTRACT to look inside the 'brand' column
+      sql += " AND JSON_UNQUOTE(JSON_EXTRACT(brand, '$.id')) = ?";
       params.push(brandId);
     }
 
+    // 2. Apply Featured Filter
     if (isFeatured === 'true' || isFeatured === '1') {
-      conditions.push("isFeatured = 1");
+      sql += " AND isFeatured = 1";
     }
 
-    if (conditions.length > 0) {
-      sql += " WHERE " + conditions.join(" AND ");
-    }
-
+    // 3. Apply Limit
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
     }
 
-    // --- LOG THE GENERATED SQL ---
-    console.log("🚀 Executing SQL:", sql);
-    console.log("🔢 With Parameters:", params);
-    // -----------------------------
+    console.log("🚀 SQL Query:", sql);
+    console.log("🔢 Params:", params);
 
     const [rows] = await db.query(sql, params);
     
-    // --- LOG THE RESULT COUNT ---
-    console.log(`✅ Database returned ${rows.length} products.`);
+    console.log(`✅ Database found ${rows.length} products match.`);
     console.log("========================================");
-    // -----------------------------
 
+    // --- URL Formatting ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
       try {
-        // Parse JSON fields from database text columns
         const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
         const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
         let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
@@ -1097,14 +1088,13 @@ app.get("/products", async (request, response) => {
           isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
         };
       } catch (e) {
-        console.error("⚠️ Error parsing row ID " + product.id + ":", e.message);
         return product; 
       }
     });
 
     response.status(200).json(products);
   } catch (error) {
-    console.error("🔥 CRITICAL SERVER ERROR:", error);
+    console.error("🔥 Server Error:", error);
     response.status(500).json({ message: "Internal server error." });
   }
 });
