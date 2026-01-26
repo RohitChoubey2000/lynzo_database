@@ -1023,7 +1023,6 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
-
 app.get("/products", async (request, response) => {
   try {
     const { isFeatured, limit, brandId } = request.query;
@@ -1039,9 +1038,10 @@ app.get("/products", async (request, response) => {
     let params = [];
     let conditions = [];
 
+    // UPDATED FILTER: Using JSON_UNQUOTE to ensure string matching works with MySQL JSON columns
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // JSON_EXTRACT matches the Hex ID inside your brand JSON column
-      conditions.push("JSON_EXTRACT(brand, '$.id') = ?");
+      // JSON_EXTRACT reaches into the JSON string, JSON_UNQUOTE removes the double quotes
+      conditions.push("JSON_UNQUOTE(JSON_EXTRACT(brand, '$.id')) = ?");
       params.push(brandId);
     }
 
@@ -1053,6 +1053,7 @@ app.get("/products", async (request, response) => {
       sql += " WHERE " + conditions.join(" AND ");
     }
 
+    // Handle Limit
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
@@ -1075,8 +1076,8 @@ app.get("/products", async (request, response) => {
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
-      // Try/Catch here prevents one bad JSON row from crashing the whole list
       try {
+        // Safely parse JSON strings from the database columns
         const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
         const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
         let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
@@ -1097,7 +1098,7 @@ app.get("/products", async (request, response) => {
           isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
         };
       } catch (e) {
-        console.error("⚠️ Error parsing product row:", product.id, e.message);
+        console.error("⚠️ Error parsing product row ID " + product.id + ":", e.message);
         return product; 
       }
     });
