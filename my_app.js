@@ -1024,44 +1024,51 @@ app.post("/products", (req, res, next) => {
     }
 });
 
-
 app.get("/products", async (request, response) => {
   try {
     const { isFeatured, limit, brandId } = request.query;
 
     console.log("========================================");
+    console.log("📥 NEW REQUEST RECEIVED");
     console.log("🆔 Filtering for Brand ID:", brandId);
 
-    let sql = "SELECT * FROM Products WHERE 1=1"; // 'WHERE 1=1' makes appending AND logic easier
+    let sql = "SELECT * FROM Products";
+    let conditions = [];
     let params = [];
 
-    // 1. Apply Brand Filter
+    // 1. BRAND FILTER: Using JSON_CONTAINS
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // We use JSON_UNQUOTE + JSON_EXTRACT to look inside the 'brand' column
-      sql += " AND JSON_UNQUOTE(JSON_EXTRACT(brand, '$.id')) = ?";
-      params.push(brandId);
+      // This checks if the 'brand' column contains a JSON object with this ID
+      // The format: {"id": "your-brand-id"}
+      conditions.push(`JSON_CONTAINS(brand, ?, '$.id')`);
+      params.push(`"${brandId}"`); // JSON strings must be wrapped in double quotes
     }
 
-    // 2. Apply Featured Filter
+    // 2. FEATURED FILTER
     if (isFeatured === 'true' || isFeatured === '1') {
-      sql += " AND isFeatured = 1";
+      conditions.push("isFeatured = 1");
     }
 
-    // 3. Apply Limit
+    // Combine conditions
+    if (conditions.length > 0) {
+      sql += " WHERE " + conditions.join(" AND ");
+    }
+
+    // 3. LIMIT
     if (limit) {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
     }
 
-    console.log("🚀 SQL Query:", sql);
-    console.log("🔢 Params:", params);
+    console.log("🚀 Executing SQL:", sql);
+    console.log("🔢 With Params:", params);
 
     const [rows] = await db.query(sql, params);
     
-    console.log(`✅ Database found ${rows.length} products match.`);
+    console.log(`✅ Database found ${rows.length} products.`);
     console.log("========================================");
 
-    // --- URL Formatting ---
+    // --- URL Formatting Logic (Keep this as is) ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
@@ -1073,8 +1080,7 @@ app.get("/products", async (request, response) => {
         let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
 
         const formatUrl = (path) => {
-          if (!path) return "";
-          if (path.startsWith('http')) return path;
+          if (!path || path.startsWith('http')) return path || "";
           return `${baseUrl}/${path.replace(/^\//, '')}`;
         };
 
@@ -1088,7 +1094,7 @@ app.get("/products", async (request, response) => {
           isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
         };
       } catch (e) {
-        return product; 
+        return product;
       }
     });
 
