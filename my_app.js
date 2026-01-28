@@ -1023,7 +1023,6 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
-
 app.get("/products", async (request, response) => {
   try {
     const { brandId, isFeatured, limit } = request.query;
