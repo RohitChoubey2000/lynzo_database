@@ -1023,6 +1023,7 @@ app.post("/products", (req, res, next) => {
         });
     }
 });
+
 app.get("/products", async (request, response) => {
   try {
     const { brandId, isFeatured, limit } = request.query;
@@ -1032,18 +1033,28 @@ app.get("/products", async (request, response) => {
 
     let sql = "SELECT * FROM Products";
     let params = [];
+    let conditions = [];
 
-    // FORCE THE FILTER HERE
+    // --- START: UPDATED FILTER LOGIC ---
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // Direct WHERE clause using LIKE for the JSON string
-      sql += " WHERE brand LIKE ?"; 
-      params.push(`%"id":"${brandId}"%`);
-      console.log("🎯 FILTER APPLIED: brand LIKE " + `%"id":"${brandId}"%`);
-    } else if (isFeatured === 'true' || isFeatured === '1') {
-      sql += " WHERE isFeatured = 1";
+      // This precisely targets the 'id' field inside your 'brand' JSON column
+      conditions.push("JSON_UNQUOTE(JSON_EXTRACT(brand, '$.id')) = ?");
+      params.push(brandId);
+      console.log("🎯 JSON FILTER APPLIED for ID:", brandId);
+    } 
+    
+    // Only apply isFeatured if we aren't already filtering by brand, 
+    // OR change 'else if' to 'if' if you want to filter by both.
+    if (isFeatured === 'true' || isFeatured === '1') {
+      conditions.push("isFeatured = 1");
     }
 
-    if (limit) {
+    if (conditions.length > 0) {
+      sql += " WHERE " + conditions.join(" AND ");
+    }
+    // --- END: UPDATED FILTER LOGIC ---
+
+    if (limit && limit !== '-1') {
       sql += " LIMIT ?";
       params.push(parseInt(limit));
     }
@@ -1054,20 +1065,28 @@ app.get("/products", async (request, response) => {
     console.log(`✅ ACTUAL MATCHES FOUND: ${rows.length}`);
     console.log("========================================");
 
-    // --- Data Mapping (Keep this the same) ---
+    // --- Data Mapping ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
+      // Safe JSON parsing for brand
       const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
+      
       const formatUrl = (path) => (!path || path.startsWith('http')) ? (path || "") : `${baseUrl}/${path.replace(/^\//, '')}`;
       
+      // Safe JSON parsing for images
+      let imagesList = [];
+      try {
+        imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : (product.images || []);
+      } catch (e) { imagesList = []; }
+
       return {
         ...product,
         brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
         thumbnail: formatUrl(product.thumbnail),
-        images: Array.isArray(JSON.parse(product.images || "[]")) ? JSON.parse(product.images).map(img => formatUrl(img)) : [],
+        images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
         isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
       };
     });
