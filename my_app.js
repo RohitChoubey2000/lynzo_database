@@ -1026,30 +1026,22 @@ app.post("/products", (req, res, next) => {
 
 app.get("/products", async (request, response) => {
   try {
-    const { isFeatured, limit, brandId } = request.query;
+    const { brandId, isFeatured, limit } = request.query;
 
     console.log("========================================");
-    console.log("📥 REQUEST RECEIVED");
-    console.log("🆔 Filtering for Brand ID:", brandId);
+    console.log("🆔 TARGET BRAND ID:", brandId);
 
     let sql = "SELECT * FROM Products";
     let params = [];
-    let conditions = [];
 
-    // FIX: Using LIKE to find the specific ID inside the JSON "brand" column string
+    // FORCE THE FILTER HERE
     if (brandId && brandId !== 'null' && brandId !== '') {
-      // This matches the exact ID format inside your JSON: {"id":"3e3c..."}
-      conditions.push("brand LIKE ?");
+      // Direct WHERE clause using LIKE for the JSON string
+      sql += " WHERE brand LIKE ?"; 
       params.push(`%"id":"${brandId}"%`);
-    }
-
-    if (isFeatured === 'true' || isFeatured === '1') {
-      conditions.push("isFeatured = 1");
-    }
-
-    // Combine conditions into the WHERE clause
-    if (conditions.length > 0) {
-      sql += " WHERE " + conditions.join(" AND ");
+      console.log("🎯 FILTER APPLIED: brand LIKE " + `%"id":"${brandId}"%`);
+    } else if (isFeatured === 'true' || isFeatured === '1') {
+      sql += " WHERE isFeatured = 1";
     }
 
     if (limit) {
@@ -1057,42 +1049,28 @@ app.get("/products", async (request, response) => {
       params.push(parseInt(limit));
     }
 
-    console.log("🚀 FINAL SQL:", sql);
-    console.log("🔢 PARAMS:", params);
-
+    console.log("🚀 EXECUTING SQL:", sql);
     const [rows] = await db.query(sql, params);
     
-    console.log(`✅ MATCHES FOUND IN DATABASE: ${rows.length}`);
+    console.log(`✅ ACTUAL MATCHES FOUND: ${rows.length}`);
     console.log("========================================");
 
+    // --- Data Mapping (Keep this the same) ---
     const protocol = request.protocol;
     const host = request.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     const products = rows.map(product => {
-      try {
-        const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
-        const imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
-        let variations = typeof product.productVariations === 'string' ? JSON.parse(product.productVariations) : product.productVariations;
-
-        const formatUrl = (path) => {
-          if (!path) return "";
-          if (path.startsWith('http')) return path;
-          return `${baseUrl}/${path.replace(/^\//, '')}`;
-        };
-
-        return {
-          ...product,
-          brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
-          images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
-          thumbnail: formatUrl(product.thumbnail),
-          productAttributes: typeof product.productAttributes === 'string' ? JSON.parse(product.productAttributes) : product.productAttributes,
-          productVariations: typeof variations === 'string' ? JSON.parse(variations) : variations,
-          isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
-        };
-      } catch (e) {
-        return product; 
-      }
+      const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
+      const formatUrl = (path) => (!path || path.startsWith('http')) ? (path || "") : `${baseUrl}/${path.replace(/^\//, '')}`;
+      
+      return {
+        ...product,
+        brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
+        thumbnail: formatUrl(product.thumbnail),
+        images: Array.isArray(JSON.parse(product.images || "[]")) ? JSON.parse(product.images).map(img => formatUrl(img)) : [],
+        isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
+      };
     });
 
     response.status(200).json(products);
