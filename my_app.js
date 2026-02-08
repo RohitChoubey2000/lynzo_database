@@ -1098,6 +1098,42 @@ app.get("/products", async (request, response) => {
   }
 });
 
+
+/// upload-brand-categories
+app.post("/upload-brand-categories", async (request, response) => {
+  try {
+    const categories = request.body; // Expecting the List<BrandCategoryModel> as JSON
+
+    if (!Array.isArray(categories) || categories.length === 0) {
+      return response.status(400).json({ message: "Invalid data format. Expected an array." });
+    }
+
+    // Prepare the data for bulk insert
+    // We generate a unique ID (e.g., 'brand_cat_123') for each row to fill the 'id' column
+    const values = categories.map((item, index) => [
+      `bc_${Date.now()}_${index}`, // Unique ID for the 'id' column
+      item.brandId,
+      item.categoryId
+    ]);
+
+    const sql = "INSERT INTO BrandCategory (id, brandId, categoryId) VALUES ?";
+    
+    // db.query(sql, [values]) is the standard way to perform bulk inserts in mysql2
+    const [result] = await db.query(sql, [values]);
+
+    console.log(`✅ Successfully uploaded ${result.affectedRows} brand-category links.`);
+    
+    response.status(200).json({ 
+      message: "Data uploaded successfully!", 
+      insertedRows: result.affectedRows 
+    });
+
+  } catch (error) {
+    console.error("🔥 UPLOAD ERROR:", error);
+    response.status(500).json({ message: "Internal server error during upload." });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
