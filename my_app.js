@@ -1134,6 +1134,44 @@ app.post("/upload-brand-categories", async (request, response) => {
   }
 });
 
+
+// POST route to upload product-category links
+app.post("/upload-product-categories", async (request, response) => {
+  try {
+    const data = request.body; // Expecting the List<ProductCategoryModel> as JSON
+
+    // Validation: Ensure the body is a non-empty array
+    if (!Array.isArray(data) || data.length === 0) {
+      return response.status(400).json({ message: "Invalid data format. Expected an array." });
+    }
+
+    // Prepare values for bulk insert
+    // We map the JSON keys from your model ('productId', 'categoryId') to the table columns
+    const values = data.map((item, index) => [
+      `pc_${Date.now()}_${index}`, // Generates a unique string for the 'id' column
+      item.productId,              // Matches YouTuber model key
+      item.categoryId              // Matches YouTuber model key
+    ]);
+
+    // SQL query using the table name from your database
+    const sql = "INSERT INTO ProductCategory (id, productId, categoryId) VALUES ?";
+    
+    // Execute bulk insert
+    const [result] = await db.query(sql, [values]);
+
+    console.log(`✅ Successfully uploaded ${result.affectedRows} product-category links.`);
+    
+    response.status(200).json({ 
+      message: "Product Categories uploaded successfully!", 
+      count: result.affectedRows 
+    });
+
+  } catch (error) {
+    console.error("🔥 UPLOAD ERROR:", error);
+    response.status(500).json({ message: "Internal server error during upload." });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
