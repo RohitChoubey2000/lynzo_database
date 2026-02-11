@@ -1134,6 +1134,37 @@ app.post("/upload-brand-categories", async (request, response) => {
   }
 });
 
+// GET brands associated with a specific category ID
+app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
+  try {
+    const { categoryId } = request.params; // Gets the ID from the URL (e.g., /fetch-brands-for-category/1)
+
+    // SQL JOIN Query: This links your mapping table with your actual Brands table
+    // We select details from the 'Brands' table where the 'BrandCategory' link matches our ID
+    const sql = `
+      SELECT b.* FROM Brands b
+      INNER JOIN BrandCategory bc ON b.id = bc.brandId
+      WHERE bc.categoryId = ?
+      LIMIT 2`; // The YouTuber used a limit of 2, so we keep that here
+
+    const [brands] = await db.query(sql, [categoryId]);
+
+    // Check if any brands were found
+    if (brands.length === 0) {
+      return response.status(404).json({ message: "No brands found for this category." });
+    }
+
+    console.log(`✅ Successfully fetched ${brands.length} brands for category: ${categoryId}`);
+    
+    // Return the list of brands as JSON
+    response.status(200).json(brands);
+
+  } catch (error) {
+    console.error("🔥 FETCH ERROR:", error);
+    response.status(500).json({ message: "Internal server error while fetching brands." });
+  }
+});
+
 
 // POST route to upload product-category links
 app.post("/upload-product-categories", async (request, response) => {
@@ -1169,6 +1200,41 @@ app.post("/upload-product-categories", async (request, response) => {
   } catch (error) {
     console.error("🔥 UPLOAD ERROR:", error);
     response.status(500).json({ message: "Internal server error during upload." });
+  }
+});
+
+
+// GET products for a specific brand with an optional limit
+app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
+  try {
+    const { brandId } = request.params; // Extracts brandId from the URL
+    
+    // 1. Get the limit from query parameters (e.g., ?limit=4)
+    // We use parseInt to ensure it's a number
+    const limit = parseInt(request.query.limit);
+
+    // 2. Base SQL query selecting from your Products table
+    // Note: Ensure the column name is 'brandId' to match your 'productId' style
+    let sql = "SELECT * FROM Products WHERE brandId = ?";
+    let queryParams = [brandId];
+
+    // 3. Apply the limit logic (matches YouTuber's -1 for 'all' logic)
+    if (limit && limit > 0) {
+      sql += " LIMIT ?";
+      queryParams.push(limit);
+    }
+
+    // 4. Execute the query using your db connection
+    const [products] = await db.query(sql, queryParams);
+
+    console.log(`✅ Fetched ${products.length} products for Brand ID: ${brandId}`);
+    
+    // 5. Send the result back to Flutter
+    response.status(200).json(products);
+
+  } catch (error) {
+    console.error("🔥 FETCH PRODUCTS ERROR:", error);
+    response.status(500).json({ message: "Internal server error while fetching products." });
   }
 });
 
