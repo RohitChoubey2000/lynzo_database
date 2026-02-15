@@ -1137,26 +1137,36 @@ app.post("/upload-brand-categories", async (request, response) => {
 // GET brands associated with a specific category ID
 app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
   try {
-    const { categoryId } = request.params; // Gets the ID from the URL (e.g., /fetch-brands-for-category/1)
+    const { categoryId } = request.params; 
+    const domain = "http://lynzo.edugaondev.com/";
 
-    // SQL JOIN Query: This links your mapping table with your actual Brands table
-    // We select details from the 'Brands' table where the 'BrandCategory' link matches our ID
+    // FIX 1: Use CONCAT to build the full image URL so Flutter can display it
+    // FIX 2: Ensure we select b.* but replace the image field with the full path
     const sql = `
-      SELECT b.* FROM Brands b
+      SELECT 
+        b.id, 
+        b.name, 
+        CONCAT(?, b.image) AS image, 
+        b.isFeatured, 
+        b.productsCount 
+      FROM Brands b
       INNER JOIN BrandCategory bc ON b.id = bc.brandId
       WHERE bc.categoryId = ?
-      LIMIT 2`; // The YouTuber used a limit of 2, so we keep that here
+      LIMIT 2`;
 
-    const [brands] = await db.query(sql, [categoryId]);
+    // Passing domain and categoryId as parameters to the query
+    const [brands] = await db.query(sql, [domain, categoryId]);
 
-    // Check if any brands were found
+    // FIX 3: Return 200 with an empty array [] instead of 404
+    // This prevents the "Red Error Screen" in Flutter when a category has no items
     if (brands.length === 0) {
-      return response.status(404).json({ message: "No brands found for this category." });
+      console.log(`⚠️ No brands found for category: ${categoryId}`);
+      return response.status(200).json([]); 
     }
 
     console.log(`✅ Successfully fetched ${brands.length} brands for category: ${categoryId}`);
     
-    // Return the list of brands as JSON
+    // Return the list of brands with full image URLs
     response.status(200).json(brands);
 
   } catch (error) {
