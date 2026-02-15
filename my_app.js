@@ -1248,6 +1248,40 @@ app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
   }
 });
 
+
+// GET products associated with a specific category ID
+app.get("/fetch-products-for-category/:categoryId", async (request, response) => {
+  try {
+    const { categoryId } = request.params;
+    const limit = parseInt(request.query.limit) || 4; // Default limit of 4, same as YouTuber code
+    const domain = "http://lynzo.edugaondev.com/";
+
+    // Using JOIN to connect ProductCategory mapping to the actual Products data
+    const sql = `
+      SELECT 
+        p.*, 
+        CONCAT(?, p.thumbnail) AS thumbnail 
+      FROM Products p
+      INNER JOIN ProductCategory pc ON p.id = pc.productId
+      WHERE pc.categoryId = ?
+      LIMIT ?`;
+
+    const [products] = await db.query(sql, [domain, categoryId, limit]);
+
+    // Check if products exist to avoid the "No Data Found" message in UI
+    if (products.length === 0) {
+      console.log(`⚠️ No products found for category: ${categoryId}`);
+      return response.status(200).json([]); 
+    }
+
+    console.log(`✅ Successfully fetched ${products.length} products for category: ${categoryId}`);
+    response.status(200).json(products);
+
+  } catch (error) {
+    console.error("🔥 PRODUCT FETCH ERROR:", error);
+    response.status(500).json({ message: "Internal server error while fetching products." });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
