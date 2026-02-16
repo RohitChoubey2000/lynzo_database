@@ -1133,6 +1133,8 @@ app.post("/upload-brand-categories", async (request, response) => {
     response.status(500).json({ message: "Internal server error during upload." });
   }
 });
+
+
 // GET brands associated with a specific category ID
 app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
   try {
@@ -1163,15 +1165,15 @@ app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
 
     // 4. Return empty array if nothing found to prevent Flutter red screen
     if (brands.length === 0) {
-      console.log(`⚠️ No brands found for category: ${categoryId}`);
+      console.log(` No brands found for category: ${categoryId}`);
       return response.status(200).json([]); 
     }
 
-    console.log(`✅ Successfully fetched ${brands.length} brands for category: ${categoryId}`);
+    console.log(` Successfully fetched ${brands.length} brands for category: ${categoryId}`);
     response.status(200).json(brands);
 
   } catch (error) {
-    console.error("🔥 FETCH ERROR:", error);
+    console.error(" FETCH ERROR:", error);
     response.status(500).json({ message: "Internal server error" });
   }
 });
@@ -1221,11 +1223,10 @@ app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
     const { brandId } = request.params; 
     const limit = parseInt(request.query.limit);
 
-    // 1. Define the domain
-    const domain = "https://lynzo.edugaondev.com/";
+    // 1. Get the domain from your .env file and add the slash
+    const baseUrl = (process.env.APP_URL || "https://lynzo.edugaondev.com") + "/";
 
-    // 2. Specify columns and use CONCAT for the thumbnail
-    // Note: Adjust column names (title, price, etc.) to match your actual Products table
+    // 2. Use the CASE and CONCAT logic for safer image loading
     let sql = `
       SELECT 
         id, 
@@ -1233,14 +1234,18 @@ app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
         stock, 
         price, 
         salePrice, 
-        CONCAT('${domain}', thumbnail) AS thumbnail, 
+        CASE 
+          WHEN thumbnail LIKE 'http%' THEN thumbnail 
+          ELSE CONCAT(?, thumbnail) 
+        END AS thumbnail, 
         isFeatured, 
         brandId, 
         categoryId 
       FROM Products 
       WHERE brandId = ?`;
       
-    let queryParams = [brandId];
+    // Add baseUrl as the first parameter for the CONCAT
+    let queryParams = [baseUrl, brandId];
 
     // 3. Apply limit logic
     if (limit && limit > 0) {
@@ -1260,10 +1265,9 @@ app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
 
   } catch (error) {
     console.error("🔥 FETCH PRODUCTS ERROR:", error);
-    response.status(500).json({ message: "Internal server error while fetching products." });
+    response.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 // GET products associated with a specific category ID
 app.get("/fetch-products-for-category/:categoryId", async (request, response) => {
