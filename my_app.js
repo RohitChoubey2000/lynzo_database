@@ -1209,29 +1209,44 @@ app.post("/upload-product-categories", async (request, response) => {
 // GET products for a specific brand with an optional limit
 app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
   try {
-    const { brandId } = request.params; // Extracts brandId from the URL
-    
-    // 1. Get the limit from query parameters (e.g., ?limit=4)
-    // We use parseInt to ensure it's a number
+    const { brandId } = request.params; 
     const limit = parseInt(request.query.limit);
 
-    // 2. Base SQL query selecting from your Products table
-    // Note: Ensure the column name is 'brandId' to match your 'productId' style
-    let sql = "SELECT * FROM Products WHERE brandId = ?";
+    // 1. Define the domain
+    const domain = "https://lynzo.edugaondev.com/";
+
+    // 2. Specify columns and use CONCAT for the thumbnail
+    // Note: Adjust column names (title, price, etc.) to match your actual Products table
+    let sql = `
+      SELECT 
+        id, 
+        title, 
+        stock, 
+        price, 
+        salePrice, 
+        CONCAT('${domain}', thumbnail) AS thumbnail, 
+        isFeatured, 
+        brandId, 
+        categoryId 
+      FROM Products 
+      WHERE brandId = ?`;
+      
     let queryParams = [brandId];
 
-    // 3. Apply the limit logic (matches YouTuber's -1 for 'all' logic)
+    // 3. Apply limit logic
     if (limit && limit > 0) {
       sql += " LIMIT ?";
       queryParams.push(limit);
     }
 
-    // 4. Execute the query using your db connection
     const [products] = await db.query(sql, queryParams);
 
+    // 4. Handle empty results to prevent Flutter UI crashes
+    if (products.length === 0) {
+      return response.status(200).json([]); 
+    }
+
     console.log(`✅ Fetched ${products.length} products for Brand ID: ${brandId}`);
-    
-    // 5. Send the result back to Flutter
     response.status(200).json(products);
 
   } catch (error) {
