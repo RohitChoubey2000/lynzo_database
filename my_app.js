@@ -1133,18 +1133,24 @@ app.post("/upload-brand-categories", async (request, response) => {
     response.status(500).json({ message: "Internal server error during upload." });
   }
 });
-
 // GET brands associated with a specific category ID
 app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
   try {
     const { categoryId } = request.params; 
 
-    // Hardcode the domain directly in the CONCAT for stability
+    // 1. Define the base URL from your environment or a variable
+    // This matches your working logic: process.env.APP_URL + '/'
+    const baseUrl = (process.env.APP_URL || "https://lynzo.edugaondev.com") + '/';
+
+    // 2. Updated SQL Query using CASE for smart URL handling
     const sql = `
       SELECT 
         b.id, 
         b.name, 
-        CONCAT('https://lynzo.edugaondev.com/', b.image) AS image, 
+        CASE 
+          WHEN b.image LIKE 'http%' THEN b.image 
+          ELSE CONCAT(?, b.image) 
+        END AS image, 
         b.isFeatured, 
         b.productsCount 
       FROM Brands b
@@ -1152,13 +1158,16 @@ app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
       WHERE bc.categoryId = ?
       LIMIT 2`;
 
-    // Only one parameter needed now (?)
-    const [brands] = await db.query(sql, [categoryId]);
+    // 3. Pass both the base URL (?) and the categoryId (?) as parameters
+    const [brands] = await db.query(sql, [baseUrl, categoryId]);
 
+    // 4. Return empty array if nothing found to prevent Flutter red screen
     if (brands.length === 0) {
-      return response.status(200).json([]); // Return empty array to prevent Flutter crashes
+      console.log(`⚠️ No brands found for category: ${categoryId}`);
+      return response.status(200).json([]); 
     }
 
+    console.log(`✅ Successfully fetched ${brands.length} brands for category: ${categoryId}`);
     response.status(200).json(brands);
 
   } catch (error) {
