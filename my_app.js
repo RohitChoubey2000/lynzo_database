@@ -1138,15 +1138,13 @@ app.post("/upload-brand-categories", async (request, response) => {
 app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
   try {
     const { categoryId } = request.params; 
-    const domain = "http://lynzo.edugaondev.com/";
 
-    // FIX 1: Use CONCAT to build the full image URL so Flutter can display it
-    // FIX 2: Ensure we select b.* but replace the image field with the full path
+    // Hardcode the domain directly in the CONCAT for stability
     const sql = `
       SELECT 
         b.id, 
         b.name, 
-        CONCAT(?, b.image) AS image, 
+        CONCAT('https://lynzo.edugaondev.com/', b.image) AS image, 
         b.isFeatured, 
         b.productsCount 
       FROM Brands b
@@ -1154,24 +1152,18 @@ app.get("/fetch-brands-for-category/:categoryId", async (request, response) => {
       WHERE bc.categoryId = ?
       LIMIT 2`;
 
-    // Passing domain and categoryId as parameters to the query
-    const [brands] = await db.query(sql, [domain, categoryId]);
+    // Only one parameter needed now (?)
+    const [brands] = await db.query(sql, [categoryId]);
 
-    // FIX 3: Return 200 with an empty array [] instead of 404
-    // This prevents the "Red Error Screen" in Flutter when a category has no items
     if (brands.length === 0) {
-      console.log(`⚠️ No brands found for category: ${categoryId}`);
-      return response.status(200).json([]); 
+      return response.status(200).json([]); // Return empty array to prevent Flutter crashes
     }
 
-    console.log(`✅ Successfully fetched ${brands.length} brands for category: ${categoryId}`);
-    
-    // Return the list of brands with full image URLs
     response.status(200).json(brands);
 
   } catch (error) {
     console.error("🔥 FETCH ERROR:", error);
-    response.status(500).json({ message: "Internal server error while fetching brands." });
+    response.status(500).json({ message: "Internal server error" });
   }
 });
 
