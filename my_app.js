@@ -1304,52 +1304,37 @@ app.get("/fetch-products-for-category/:categoryId", async (request, response) =>
 });
 
 
-///  For wishlist Screen
-app.post("/fetch-products-by-ids", async (request, response) => {
-  try {
-    const { productIds } = request.body; // Expecting ['id1', 'id2'] from Flutter
 
-    if (!productIds || productIds.length === 0) {
-      return response.status(200).json([]); // Return empty if wishlist is empty
+
+// GET: Fetch products for the Wishlist using IDs in the Query String
+app.get("/fetch-favourite-products", async (request, response) => {
+  try {
+    // 1. Get IDs from the query string (e.g., /fetch-favourite-products?ids=1,2,3)
+    const { ids } = request.query;
+
+    if (!ids) {
+      return response.status(200).json([]); // Return empty if no IDs provided
     }
 
-    // 1. SQL using IN clause to fetch all selected products
+    // 2. Convert the comma-separated string into an array
+    const productIds = ids.split(',');
+
+    // 3. MySQL equivalent of Firebase's .whereIn(productIds)
     const sql = "SELECT * FROM Products WHERE id IN (?)";
+    
+    // 4. Fetch the raw data
     const [rows] = await db.query(sql, [productIds]);
 
-    // 2. Reuse your exact URL formatting logic from the /products route
-    const protocol = request.protocol;
-    const host = request.get('host');
-    const baseUrl = `${protocol}://${host}`;
-
-    const products = rows.map(product => {
-      const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
-      
-      const formatUrl = (path) => (!path || path.startsWith('http')) ? (path || "") : `${baseUrl}/${path.replace(/^\//, '')}`;
-      
-      let imagesList = [];
-      try {
-        imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : (product.images || []);
-      } catch (e) { imagesList = []; }
-
-      return {
-        ...product,
-        brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
-        thumbnail: formatUrl(product.thumbnail),
-        images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
-        isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
-      };
-    });
-
-    console.log(`✅ Fetched ${products.length} products for Wishlist.`);
-    response.status(200).json(products);
+    console.log(`✅ Fetched ${rows.length} raw products for Wishlist.`);
+    
+    // 5. Send data back exactly as it is in the database
+    response.status(200).json(rows);
 
   } catch (error) {
-    console.error("🔥 WISHLIST ERROR:", error);
-    response.status(500).json({ message: "Internal server error." });
+    console.error("🔥 RAW FETCH ERROR:", error);
+    response.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
