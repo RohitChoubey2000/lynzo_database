@@ -1203,7 +1203,7 @@ app.post("/upload-product-categories", async (request, response) => {
     // Execute bulk insert
     const [result] = await db.query(sql, [values]);
 
-    console.log(`✅ Successfully uploaded ${result.affectedRows} product-category links.`);
+    console.log(` Successfully uploaded ${result.affectedRows} product-category links.`);
     
     response.status(200).json({ 
       message: "Product Categories uploaded successfully!", 
@@ -1211,7 +1211,7 @@ app.post("/upload-product-categories", async (request, response) => {
     });
 
   } catch (error) {
-    console.error("🔥 UPLOAD ERROR:", error);
+    console.error(" UPLOAD ERROR:", error);
     response.status(500).json({ message: "Internal server error during upload." });
   }
 });
@@ -1260,11 +1260,11 @@ app.get("/fetch-products-for-brand/:brandId", async (request, response) => {
       return response.status(200).json([]); 
     }
 
-    console.log(`✅ Fetched ${products.length} products for Brand ID: ${brandId}`);
+    console.log(` Fetched ${products.length} products for Brand ID: ${brandId}`);
     response.status(200).json(products);
 
   } catch (error) {
-    console.error("🔥 FETCH PRODUCTS ERROR:", error);
+    console.error(" FETCH PRODUCTS ERROR:", error);
     response.status(500).json({ message: "Internal server error" });
   }
 });
@@ -1290,18 +1290,67 @@ app.get("/fetch-products-for-category/:categoryId", async (request, response) =>
 
     // Check if products exist to avoid the "No Data Found" message in UI
     if (products.length === 0) {
-      console.log(`⚠️ No products found for category: ${categoryId}`);
+      console.log(` No products found for category: ${categoryId}`);
       return response.status(200).json([]); 
     }
 
-    console.log(`✅ Successfully fetched ${products.length} products for category: ${categoryId}`);
+    console.log(` Successfully fetched ${products.length} products for category: ${categoryId}`);
     response.status(200).json(products);
 
   } catch (error) {
-    console.error("🔥 PRODUCT FETCH ERROR:", error);
+    console.error(" PRODUCT FETCH ERROR:", error);
     response.status(500).json({ message: "Internal server error while fetching products." });
   }
 });
+
+
+///  For wishlist Screen
+app.post("/fetch-products-by-ids", async (request, response) => {
+  try {
+    const { productIds } = request.body; // Expecting ['id1', 'id2'] from Flutter
+
+    if (!productIds || productIds.length === 0) {
+      return response.status(200).json([]); // Return empty if wishlist is empty
+    }
+
+    // 1. SQL using IN clause to fetch all selected products
+    const sql = "SELECT * FROM Products WHERE id IN (?)";
+    const [rows] = await db.query(sql, [productIds]);
+
+    // 2. Reuse your exact URL formatting logic from the /products route
+    const protocol = request.protocol;
+    const host = request.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
+    const products = rows.map(product => {
+      const brandObj = typeof product.brand === 'string' ? JSON.parse(product.brand) : product.brand;
+      
+      const formatUrl = (path) => (!path || path.startsWith('http')) ? (path || "") : `${baseUrl}/${path.replace(/^\//, '')}`;
+      
+      let imagesList = [];
+      try {
+        imagesList = typeof product.images === 'string' ? JSON.parse(product.images) : (product.images || []);
+      } catch (e) { imagesList = []; }
+
+      return {
+        ...product,
+        brand: brandObj ? { ...brandObj, image: formatUrl(brandObj.image) } : null,
+        thumbnail: formatUrl(product.thumbnail),
+        images: Array.isArray(imagesList) ? imagesList.map(img => formatUrl(img)) : [],
+        isFeatured: product.isFeatured === 1 || product.isFeatured === 'true'
+      };
+    });
+
+    console.log(`✅ Fetched ${products.length} products for Wishlist.`);
+    response.status(200).json(products);
+
+  } catch (error) {
+    console.error("🔥 WISHLIST ERROR:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
