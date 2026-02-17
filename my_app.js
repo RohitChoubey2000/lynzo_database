@@ -1309,29 +1309,29 @@ app.get("/fetch-products-for-category/:categoryId", async (request, response) =>
 // GET: Fetch products for the Wishlist using IDs in the Query String
 app.get("/fetch-favourite-products", async (request, response) => {
   try {
-    // 1. Get IDs from the query string (e.g., /fetch-favourite-products?ids=1,2,3)
+    // 1. 'ids' is the name of the list coming from Flutter/Postman
     const { ids } = request.query;
 
     if (!ids) {
-      return response.status(200).json([]); // Return empty if no IDs provided
+      return response.status(200).json([]); 
     }
 
-    // 2. Convert the comma-separated string into an array
+    // 2. Convert the string "1,10,11" into an array [1, 10, 11]
     const productIds = ids.split(',');
 
-    // 3. MySQL equivalent of Firebase's .whereIn(productIds)
+    // 3. We check if the database 'id' is IN our list of 'productIds'
+    // This is the MySQL version of the YouTuber's Firebase 'whereIn'
     const sql = "SELECT * FROM Products WHERE id IN (?)";
     
-    // 4. Fetch the raw data
     const [rows] = await db.query(sql, [productIds]);
 
-    console.log(`✅ Fetched ${rows.length} raw products for Wishlist.`);
+    console.log(`✅ Matches found in 'id' column: ${rows.length}`);
     
-    // 5. Send data back exactly as it is in the database
+    // 4. Return raw data exactly as seen in your phpMyAdmin screenshot
     response.status(200).json(rows);
 
   } catch (error) {
-    console.error("🔥 RAW FETCH ERROR:", error);
+    console.error("🔥 ERROR:", error);
     response.status(500).json({ message: "Internal server error" });
   }
 });
