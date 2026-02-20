@@ -1344,37 +1344,41 @@ app.get("/fetch-products-for-category/:categoryId", async (request, response) =>
 
 
 
-
-// GET: Fetch products for the Wishlist using IDs in the Query String
 app.get("/fetch-favourite-products", async (request, response) => {
   try {
-    // 1. 'ids' is the name of the list coming from Flutter/Postman
     const { ids } = request.query;
 
     if (!ids) {
       return response.status(200).json([]); 
     }
 
-    // 2. Convert the string "1,10,11" into an array [1, 10, 11]
     const productIds = ids.split(',');
-
-    // 3. We check if the database 'id' is IN our list of 'productIds'
-    // This is the MySQL version of the YouTuber's Firebase 'whereIn'
     const sql = "SELECT * FROM Products WHERE id IN (?)";
-    
     const [rows] = await db.query(sql, [productIds]);
 
-    console.log(`✅ Matches found in 'id' column: ${rows.length}`);
-    
-    // 4. Return raw data exactly as seen in your phpMyAdmin screenshot
-    response.status(200).json(rows);
+    // MAP THE DATA TO ADD THE FULL URL
+    const productsWithUrls = rows.map(product => {
+      // Determine the host (localhost for Postman, 10.0.2.2 for Emulator, or lynzo... for Live)
+      let host = request.get('host');
+      if (host.includes('localhost')) {
+        host = '10.0.2.2:3500'; // Correct IP for Android Emulator
+      }
 
+      return {
+        ...product,
+        // Build the full URL: https://lynzo.edugaondev.com/productImages/image.jpg
+        thumbnail: product.thumbnail ? `${request.protocol}://${host}/${product.thumbnail}` : null,
+        // If you have an 'images' array field, you must map that too:
+        images: product.images ? JSON.parse(product.images).map(img => `${request.protocol}://${host}/${img}`) : []
+      };
+    });
+
+    response.status(200).json(productsWithUrls);
   } catch (error) {
-    console.error("🔥 ERROR:", error);
+    console.error("Error:", error);
     response.status(500).json({ message: "Internal server error" });
   }
 });
-
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
