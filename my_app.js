@@ -676,20 +676,30 @@ app.delete("/users/:id", authenticateToken, async (request, response) => {
   }
 });
 
-// 1. GET all categories (Now with full URLs)
 app.get("/categories", async (request, response) => {
   try {
     const [categories] = await db.query("SELECT * FROM Categories");
-    
-    // Map through categories to add the full server URL to the image path
-    const categoriesWithUrls = categories.map(cat => ({
-      ...cat,
-      image: cat.image ? `${request.protocol}://${request.get('host')}/${cat.image}` : null
-    }));
+
+    const categoriesWithUrls = categories.map(cat => {
+      // 1. Detect the current host (Hostinger vs Localhost)
+      let host = request.get('host');
+
+      // 2. Fix for Android Emulator: If calling from a local environment, 
+      // the phone needs 10.0.2.2 to see your computer
+      if (host.includes('localhost') || host.includes('127.0.0.1')) {
+        host = '10.0.2.2:3500'; 
+      }
+
+      return {
+        ...cat,
+        // 3. Combine protocol (http/https), host, and the database path
+        image: cat.image ? `${request.protocol}://${host}/${cat.image}` : null
+      };
+    });
 
     response.status(200).json(categoriesWithUrls);
   } catch (error) {
-    console.error("Error fetching categories:", error);
+    console.error("Error:", error);
     response.status(500).json({ message: "Internal server error." });
   }
 });
