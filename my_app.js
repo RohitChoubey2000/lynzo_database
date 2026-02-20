@@ -693,6 +693,34 @@ app.get("/categories", async (request, response) => {
   }
 });
 
+// GET: Fetch sub-categories based on a parent category ID
+app.get("/sub-categories", async (request, response) => {
+  try {
+    const { parentId } = request.query;
+
+    if (!parentId) {
+      return response.status(400).json({ message: "parentId is required" });
+    }
+
+    // MySQL equivalent of the YouTuber's 'where parentId isEqualTo categoryId'
+    const sql = "SELECT * FROM Categories WHERE parentId = ?";
+    const [subCategories] = await db.query(sql, [parentId]);
+
+    // Map through to add the full server URL to the image path
+    const subCategoriesWithUrls = subCategories.map(cat => ({
+      ...cat,
+      image: cat.image ? `${request.protocol}://${request.get('host')}/${cat.image}` : null
+    }));
+
+    console.log(`✅ Found ${subCategoriesWithUrls.length} sub-categories for parent: ${parentId}`);
+    response.status(200).json(subCategoriesWithUrls);
+
+  } catch (error) {
+    console.error("Error fetching sub-categories:", error);
+    response.status(500).json({ message: "Internal server error." });
+  }
+});
+
 // 2. GET only featured categories (Now with full URLs)
 app.get("/categories/featured", async (request, response) => {
   try {
