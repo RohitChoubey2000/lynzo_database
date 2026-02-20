@@ -1342,43 +1342,37 @@ app.get("/fetch-products-for-category/:categoryId", async (request, response) =>
   }
 });
 
-
-
 app.get("/fetch-favourite-products", async (request, response) => {
   try {
     const { ids } = request.query;
-
-    if (!ids) {
-      return response.status(200).json([]); 
-    }
+    if (!ids) return response.status(200).json([]); 
 
     const productIds = ids.split(',');
     const sql = "SELECT * FROM Products WHERE id IN (?)";
     const [rows] = await db.query(sql, [productIds]);
 
-    // MAP THE DATA TO ADD THE FULL URL
-    const productsWithUrls = rows.map(product => {
-      // Determine the host (localhost for Postman, 10.0.2.2 for Emulator, or lynzo... for Live)
-      let host = request.get('host');
-      if (host.includes('localhost')) {
-        host = '10.0.2.2:3500'; // Correct IP for Android Emulator
-      }
+    // Use the URL from your .env file
+    const baseUrl = process.env.APP_URL;
 
+    const productsWithUrls = rows.map(product => {
       return {
         ...product,
-        // Build the full URL: https://lynzo.edugaondev.com/productImages/image.jpg
-        thumbnail: product.thumbnail ? `${request.protocol}://${host}/${product.thumbnail}` : null,
-        // If you have an 'images' array field, you must map that too:
-        images: product.images ? JSON.parse(product.images).map(img => `${request.protocol}://${host}/${img}`) : []
+        // Combines https://lynzo.edugaondev.com with the database path
+        thumbnail: product.thumbnail ? `${baseUrl}/${product.thumbnail}` : null,
+        
+        // Handle images array if it exists
+        images: product.images ? JSON.parse(product.images).map(img => `${baseUrl}/${img}`) : []
       };
     });
 
+    console.log(`✅ Wishlist IDs: ${ids} -> returning Hostinger URLs`);
     response.status(200).json(productsWithUrls);
   } catch (error) {
-    console.error("Error:", error);
+    console.error("🔥 Error:", error);
     response.status(500).json({ message: "Internal server error" });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
