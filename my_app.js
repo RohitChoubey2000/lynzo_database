@@ -17,6 +17,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/brandImages', express.static('brandImages'));
 app.use('/productImages', express.static('productImages')); 
+app.use("/categoryImages", express.static("categoryImages"));
 
 
 
