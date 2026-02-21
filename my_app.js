@@ -1427,6 +1427,31 @@ app.post("/add-address", async (request, response) => {
   }
 });
 
+// GET: Fetch user addresses (Mimics Firebase Sub-collection)
+app.get("/fetch-user-addresses/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // MySQL query to fetch all addresses where userId matches
+    const [rows] = await db.query(
+      "SELECT * FROM Addresses WHERE userId = ? ORDER BY dateTime DESC", 
+      [userId]
+    );
+
+    // Convert MySQL data types (TINYINT) to Flutter-friendly types (bool)
+    const addresses = rows.map(addr => ({
+      ...addr,
+      selectedAddress: addr.selectedAddress === 1, // 1 becomes true, 0 becomes false
+    }));
+
+    res.status(200).json(addresses);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Unable to find addresses. Please try again" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
