@@ -1451,31 +1451,46 @@ app.get("/fetch-user-addresses/:userId", async (req, res) => {
     res.status(500).json({ message: "Unable to find addresses. Please try again" });
   }
 });
-// PUT: Update any field of a specific address
-app.put("/update-address-details", async (request, response) => {
+
+
+// PUT: Dynamic update for any address field
+app.put("/update-address-field", async (req, res) => {
   try {
-    const { addressId, userId, name, phoneNumber, street, city, state, postalCode, country } = request.body;
+    const { addressId, userId, ...fieldsToUpdate } = req.body;
 
-    // SQL query to update multiple fields
-    const sql = `
-      UPDATE Addresses 
-      SET name = ?, phoneNumber = ?, street = ?, city = ?, state = ?, postalCode = ?, country = ? 
-      WHERE id = ? AND userId = ?
-    `;
-
-    const [result] = await db.query(sql, [
-      name, phoneNumber, street, city, state, postalCode, country, addressId, userId
-    ]);
-
-    if (result.affectedRows === 0) {
-      return response.status(404).json({ message: "Address not found or unauthorized" });
+    if (!addressId || !userId) {
+      return res.status(400).json({ message: "addressId and userId are required" });
     }
 
-    response.status(200).json({ message: "Address updated successfully" });
+    // 1. Convert 'selected' boolean to MySQL TINYINT if it exists in the request
+    if (fieldsToUpdate.selected !== undefined) {
+      fieldsToUpdate.selectedAddress = fieldsToUpdate.selected ? 1 : 0;
+      delete fieldsToUpdate.selected; // Remove the old key
+    }
+
+    // 2. Build the dynamic SQL query
+    const keys = Object.keys(fieldsToUpdate);
+    if (keys.length === 0) {
+      return res.status(400).json({ message: "No fields provided to update" });
+    }
+
+    const setClause = keys.map(key => `${key} = ?`).join(", ");
+    const values = [...Object.values(fieldsToUpdate), addressId, userId];
+
+    const sql = `UPDATE Addresses SET ${setClause} WHERE id = ? AND userId = ?`;
+
+    // 3. Execute
+    const [result] = await db.query(sql, values);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Address not found or unauthorized" });
+    }
+
+    res.status(200).json({ message: "Update successful" });
 
   } catch (error) {
-    console.error("Update Error:", error);
-    response.status(500).json({ message: "Unable to update address. Please try again" });
+    console.error(error);
+    res.status(500).json({ message: "Unable to update address. Please try again" });
   }
 });
 
