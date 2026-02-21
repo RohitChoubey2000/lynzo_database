@@ -1373,6 +1373,62 @@ app.get("/fetch-favourite-products", async (request, response) => {
   }
 });
 
+
+// POST: Store user address
+app.post("/add-address", async (request, response) => {
+  try {
+    // Extracting data from the request body to match AddressModel fields
+    const { 
+      id, // If Flutter generates a UUID, otherwise MySQL can generate this
+      name, 
+      phoneNumber, 
+      street, 
+      city, 
+      state, 
+      postalCode, 
+      country, 
+      dateTime, 
+      selectedAddress,
+      userId // Extracted from the request or auth header
+    } = request.body;
+
+    // MySQL INSERT query
+    const sql = `
+      INSERT INTO Addresses 
+      (id, name, phoneNumber, street, city, state, postalCode, country, dateTime, selectedAddress, userId) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    // Map boolean to TINYINT for MySQL (true = 1, false = 0)
+    const isSelected = selectedAddress ? 1 : 0;
+
+    const [result] = await db.query(sql, [
+      id, 
+      name, 
+      phoneNumber, 
+      street, 
+      city, 
+      state, 
+      postalCode, 
+      country, 
+      dateTime || new Date(), 
+      isSelected, 
+      userId || null // Handles your nullable userId requirement
+    ]);
+
+    console.log("✅ Address saved successfully with ID:", id);
+    
+    // Return the ID just like the YouTuber's 'currentAddress.id'
+    response.status(200).json({ id: id, message: "Address saved successfully" });
+
+  } catch (error) {
+    console.error("Error saving address:", error);
+    response.status(500).json({ message: "Something went wrong while saving Address Information." });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+///// Have to fetch sub-category
