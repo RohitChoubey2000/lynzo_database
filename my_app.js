@@ -1452,6 +1452,31 @@ app.get("/fetch-user-addresses/:userId", async (req, res) => {
   }
 });
 
+// PUT: Update the 'selectedAddress' field for a specific address
+app.put("/update-selected-address", async (request, response) => {
+  try {
+    const { addressId, selected, userId } = request.body;
+
+    // MySQL uses TINYINT (1 for true, 0 for false)
+    const selectedValue = selected ? 1 : 0;
+
+    // SQL query filters by both addressId AND userId for security (Sub-collection logic)
+    const sql = "UPDATE Addresses SET selectedAddress = ? WHERE id = ? AND userId = ?";
+    
+    const [result] = await db.query(sql, [selectedValue, addressId, userId]);
+
+    if (result.affectedRows === 0) {
+      return response.status(404).json({ message: "Address not found or unauthorized" });
+    }
+
+    response.status(200).json({ message: "Selected address updated successfully" });
+
+  } catch (error) {
+    console.error("Update Error:", error);
+    response.status(500).json({ message: "Unable to update selected address. Please try again" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
