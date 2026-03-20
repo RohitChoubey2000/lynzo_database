@@ -1494,6 +1494,47 @@ app.put("/update-address-field", async (req, res) => {
   }
 });
 
+
+// New App [Buisness App]
+
+
+// Post Method to add new user
+app.post("/workers/signup", async (request, response) => {
+  const email = request.body.email;
+  const firstName = request.body.firstName;
+  const lastName = request.body.lastName;
+  const phoneNumber = request.body.phoneNumber;
+  const password = request.body.password;
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  try {
+    const [result] = await db.query(
+      "INSERT INTO workers (Email, FirstName, LastName, PhoneNumber, Password) VALUES (?,?,?,?,?)",
+      [email, firstName, lastName, phoneNumber, passwordHash]
+    );
+    response.status(201).json({
+      id: result.insertId,
+      email,
+      firstName,
+      lastName,
+      phoneNumber,
+    });
+  } catch (error) {
+    console.log("Database insert erro" + error);
+
+    if (error.errno === 1062) {
+      return response
+        .status(409)
+        .json({ message: "This email address is already registered." });
+    }
+
+    return response
+      .status(500)
+      .json({ message: "Server internal error. Could not register user." });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
